@@ -698,6 +698,14 @@ const dict = {
   'new-session-while-working': { zh: '回合运行中，无法新建会话', en: 'Cannot start a new session while a turn is running' },
   'new-session-unavailable': { zh: '新建会话不可用——agents 服务未加载', en: 'New session unavailable — agents service not loaded' },
   'new-session-failed': { zh: '新建会话失败 · {{err}}', en: 'New session failed · {{err}}' },
+  // ── startup phase (`ChannelUi.ready === false`) ──
+  'startup-not-ready': { zh: '{{backend}} 还在启动——就绪后按 Enter 发送', en: '{{backend}} is still starting — press Enter to send once it is ready' },
+  'startup-open-failed': { zh: '{{backend}} 会话没能打开：{{err}}', en: '{{backend}} session failed to open: {{err}}' },
+  'startup-open-failed-hint': { zh: '/new 重试 · /kernel 切换内核 · /quit 退出', en: '/new to retry · /kernel to switch kernel · /quit to exit' },
+  'startup-compose-failed-hint': { zh: 'DSH 没能启动 · /kernel 切换内核 · /quit 退出', en: 'DSH did not start · /kernel to switch kernel · /quit to exit' },
+  'startup-compose-failed-hint-log': { zh: '启动日志：{{path}} · /kernel 切换内核 · /quit 退出', en: 'Startup log: {{path}} · /kernel to switch kernel · /quit to exit' },
+  'status-starting': { zh: '正在启动 {{backend}}…', en: 'Starting {{backend}}…' },
+  'host-dsh-unavailable': { zh: '没有用上已安装的 dsh：{{reason}}', en: 'Not using the installed dsh: {{reason}}' },
   'resume-raced': { zh: '会话打开期间当前会话开始了新的回合，已取消恢复；该回合在当前会话中继续', en: 'The current session started a turn while the other one was opening — the resume was cancelled; the turn continues here' },
   'new-session-raced': { zh: '新会话打开期间当前会话开始了新的回合，已取消 /new；该回合在当前会话中继续', en: 'The current session started a turn while the new one was opening — /new was cancelled; the turn continues here' },
   'new-session-attach-failed': { zh: '会话已创建，但工作区挂载失败 · {{err}}', en: 'Session created, but workspace attachment failed · {{err}}' },
@@ -1433,6 +1441,7 @@ const dict = {
 
   // ── dsh-adapter/plugin.ts（/settings 渲染设置）───────────────────────
   'settings-fullscreen-restart': { zh: '全屏设置已保存，重启 dsh-tui 后生效', en: 'Fullscreen preference saved — restart dsh-tui to apply' },
+  'settings-launchpad-restart': { zh: '启动页设置已保存，重启 dsh-tui 后生效', en: 'Launchpad preference saved — restart dsh-tui to apply' },
   'settings-terminal-images-restart': { zh: '图片预览设置已保存，使用 /restart 重启 TUI 后生效', en: 'Image preview preference saved — use /restart to apply' },
   'settings-fullscreen-migrated': { zh: '全屏已是出厂默认（已清除更新前的 inline 选择）；偏好 inline 可在 /settings 改回', en: 'Fullscreen is now the factory default (pre-update inline choice cleared); prefer inline? Switch back in /settings' },
 
@@ -1512,6 +1521,8 @@ const dict = {
   'settings-group-empty': { zh: '此分组没有可配置字段', en: 'No configurable fields in this group' },
   'settings-section-unavailable': { zh: '命名空间未注册', en: 'namespace not served' },
   'settings-badge-restart': { zh: '重启生效', en: 'applies on restart' },
+  'settings-badge-unreadable': { zh: '设置文件无法读取——已回退默认；保存前会先备份原文件', en: 'settings file unreadable — defaults shown; saving backs up the original first' },
+  'settings-badge-recovered': { zh: '损坏的设置文件已备份到 {{backup}}', en: 'the broken settings file was backed up to {{backup}}' },
   'settings-badge-dirty': { zh: '未保存', en: 'unsaved' },
   'settings-badge-saving': { zh: '保存中', en: 'saving' },
   'settings-badge-failed': { zh: '保存失败', en: 'save failed' },
@@ -2446,9 +2457,8 @@ const dict = {
   'kernel-label-dsh': { zh: 'DeepSeek Harness', en: 'DeepSeek Harness' },
   'kernel-label-claude': { zh: 'Claude Agent', en: 'Claude Agent' },
   'kernel-label-codex': { zh: 'Codex', en: 'Codex' },
-  'kernel-login-in-session': { zh: '未登录 · 启动后用 /login 登录', en: 'Not signed in · sign in with /login after start' },
+  'kernel-login-in-session': { zh: '未登录', en: 'Not signed in' },
   'kernel-unavailable-not-installed': { zh: '未安装', en: 'Not installed' },
-  'kernel-unavailable-auth-missing': { zh: '未登录', en: 'Not signed in' },
   'kernel-unavailable-too-old': { zh: '版本过旧 · 需升级', en: 'Too old · upgrade needed' },
   'kernel-switch-restarting': { zh: '正在以 {{name}} 内核重启…', en: 'Restarting on the {{name}} kernel…' },
   // 切换内核时的过场行。failed/crashed 由旧进程报告新进程的结局；安全模式
