@@ -245,6 +245,17 @@ SDK `settings` 选项把路由钉回 `https://api.anthropic.com`。CLI 拒绝令
   无退出码时注明 exit unknown。goals 预算来自服务端；sideQuery 用只读临时 fork；
   hooks 生命周期通知与 hookPrompt 注入消息复用既有视图。缺实验方法时按实际能力
   降级，不因协议有名字假称可用。用户操作见[Codex 用户说明](codex-backend.md)。
+- **文案与公开面（B-5 起）**：用户可见的每一条字符串都在 `text.ts`（`codex-*` 169 条、
+  自带的 `elicit-*` 42 条、与平台共用的 7 条副本，双语，`codexText()` 按 `host.locale`
+  实时取语言），宿主字典里的这两段随之删除。prefs / channels 的目录改由 `host.dataDir`
+  提供，没有 host 就降级为内存（不落盘、也不猜路径）；`clientVersion` 取
+  `host.appVersion`。`session/commands.ts` 的保留名从**自己的能力面**派生（自有四条 +
+  manifest 声明的 `goals`/`channels`/`permissions` 三个名字）：宿主命令表不是公开面，
+  与本地命令重名的 skill 交给宿主合并时丢弃（"local names win"），claude 与 codex 在这一步
+  同构。manifest 也不再声明 `nativeKey`（没有生产者的预留通道，声明它等于让 manifest
+  说谎），两个内置后端自此同形。`verify-adapter-boundary.ts` 的 `backendEntries` 存量清单
+  清零：孤岛规则对**每个**后端无条件生效。细节见
+  [codex 设计文档](codex-backend-design.md) §5.20。
 - **验证范围**：真实 0.160.1 app-server 的九项无凭据离线检查通过，没有模型回合/
   费用；真实订阅登录、带凭据模型调用、真实 TTY 本轮未运行。假进程/fixture 与
   无头界面回归不能替代它们。门禁与偏离见[施工日志](codex-backend-progress.md)。
@@ -260,8 +271,9 @@ SDK `settings` 选项把路由钉回 `https://api.anthropic.com`。CLI 拒绝令
 ## 接入新后端
 
 `Backend` 是 `tui.dsh/v1alpha1` 的第三个贡献族（继设置区块、全屏场景之后），当前状态是
-**`alpha`、不承诺**：类型面、definition、contract profile 与 conformance 已可用，第三方
-bundle 的真实准入接线（清单 → registry → picker）留到 C 段（W-1）。接入一个后端 = 按公开
+**`alpha`、不承诺**：类型面、definition、contract profile、conformance 与**准入链路**
+（清单 → registry → descriptor，W-2 已接线）都可用；还没做的是把已挂载 bundle 的声明读进
+`registerBackend()` / picker 的那一步，它随 Stage C 的装链路落地。接入一个后端 = 按公开
 面写一份声明 + 实现 `AgentBackend` 与 `AgentSession`；**协议不依赖任何单个后端的特殊性**：
 claude（SDK peer + 安装向导）与 codex（系统 CLI + 进程池）必须都能用同一份声明面表达，
 两者的差异只落在 `install?`、`unloadExport?` 这类字段上——conformance 的两个正例
