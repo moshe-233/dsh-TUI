@@ -496,6 +496,22 @@ const GROUPS = {
 // 消费者写法（`lib/types/index.d.ts`，故须在 build 之后跑），判据是零诊断：
 // 品牌回归报 TS2322，松成 any 则 `@ts-expect-error` 变 unused directive。
     ["verify-public-config-types", ['node', 'scripts/verify-public-config-types.mjs']],
+// `/plugin` 命令面（Stage C-3）：在真实 Chat 里跑七种版式（inline 100/50、fullscreen 100、
+// 只有安装自带 bundle、服务缺席、服务失败、同步抛错），断言信任横幅仍在首行、Official
+// 在 profile 依赖之前、门禁 1 的标签只落在第三方行上、locked/problem/不可卸载与
+// `readOnlyReason` 原样呈现、`info` 的已装与 inspect 两态、`registries` 纯列表、
+// 凭据一律只留 host/path 不上屏（registry 的 userinfo、不需要 userinfo 的 `?token=`、
+// accepted 且上游无名时回退的原始 spec、拒绝原因与异常文本里引用的同一个 URL），
+// 旧名 `/plugins` 不再是命令（负例），以及
+// `ctx.pluginManager` 缺席或失败时诊断照旧并给出原因。另有切会话栅栏：`/plugin` 与
+// `/agents` 的报告迟到时不得落进新会话。插件服务是夹具，不跑包管理器。
+    ["verify-plugin-manager-chat", ['node', '--import', 'tsx/esm', 'scripts/verify-plugin-manager-chat.tsx']],
+// `/plugin info <name>` 的补全行（review R3/R4）：描述是插件自己的元数据，组合后先净化再按
+// 显示单元限宽——标题里的换行不得越出弹窗行、ANSI 不得进缓存、超宽中文标题在缓存里就有界——
+// 且一次 warm 装入所有 shipped 语言：`/lang` 后同一个已 warm 的节点按渲染时的语言取标题，
+// 与 `/plugin info` 一致，无需重启。端到端用真实 CommandSuggestions 在 100/50 列下断言注入
+// 的标题不会多出一条没有左边框的行（修复前的实际症状）。插件服务是替身，不联网。
+    ["verify-plugin-completions", ['node', '--import', 'tsx/esm', 'scripts/verify-plugin-completions.ts']],
 // 内核切换过场：结局分类（spawn 失败或启动期死亡＝failed，干净退出＝succeeded 不出声，
 // 之后非零退出＝crashed）、进度行写完才 spawn、双语文案与配色、plugin.ts/update.ts 接线。
     ["verify-handoff-transition", ['node', '--import', 'tsx/esm', 'scripts/verify-handoff-transition.ts']],
@@ -843,6 +859,8 @@ const GROUPS = {
 // 非 DSH 会话上的 channel：能力快照、只提供后端支持的命令、DSH 专属动作明确不可用、
 // /new 经后端 open、换会话后的代际栅栏；DSH channel 的命令表不变。
     ["verify-backend-channel", ['node', '--import', 'tsx/esm', 'scripts/verify-backend-channel.ts']],
+// 任务完成通知：共享 channel 的完成/队列/目标/换会话栅栏，回复摘要、标题、焦点与 OSC 9/99/777/BEL/tmux。
+    ['verify-task-notifications', ['node', '--import', 'tsx/esm', 'scripts/verify-task-notifications.ts']],
 // channel 构造失败回滚：核心、DSH 扩展或首次 bind 任一步抛错，都释放宿主与 agent
 // 监听、IDE 选区连接（真 loopback）和计时器，并关闭非 DSH 会话。
     ["verify-channel-rollback", ['node', '--import', 'tsx/esm', 'scripts/verify-channel-rollback.ts']],
