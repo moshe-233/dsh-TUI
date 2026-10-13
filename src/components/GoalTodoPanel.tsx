@@ -1,11 +1,14 @@
 import React from 'react'
 import { Box, Text, useAnimationFrame } from '../ui.js'
-import wrapText from '../ink/wrap-text.js'
+import wrapText, { wrapTextLines } from '../ink/wrap-text.js'
 import type { ChannelUi as Channel } from '../adapter/channel/ui-policy.js'
 import type { ChannelGoal, TodoPanelItem } from '../dsh-adapter/channel.js'
 import { t } from '../i18n.js'
 import { primaryComboString } from '../utils/keymap.js'
 import { formatGoalBudget, formatGoalBudgetCompact } from '../channel/goal-command.js'
+import { useTooltip } from './Tooltip.js'
+import type { DOMElement } from '../ink/dom.js'
+import { stringWidth } from '../ink/stringWidth.js'
 
 /** Maximum todo rows shown before the overflow line. */
 const MAX_TODOS = 8
@@ -153,6 +156,14 @@ export function GoalTodoPanel({
   wrapWidth?: number
 }): React.ReactNode {
   const goal = channel.goal
+  const objectiveRef = React.useRef<DOMElement | null>(null)
+  const goalTooltip = useTooltip(() => {
+    const width = objectiveRef.current?.yogaNode?.getComputedWidth() ?? 0
+    if (goal === undefined || width <= 0) return ''
+    return stringWidth(goal.objective) > width || goal.objective.includes('\n')
+      ? goal.objective
+      : ''
+  })
   const allTodos = channel.todos ?? []
   const doneCount = allTodos.filter(todo => todo.status === 'completed').length
   // Completed rows are useful progress while a turn is running, but become
@@ -214,7 +225,7 @@ export function GoalTodoPanel({
   if (wrapWidth !== undefined && wrapWidth > 4) {
     let used = 0
     for (const todo of todos) {
-      const wrapped = wrapText(todo.content, wrapWidth, 'wrap').split('\n')
+      const wrapped = wrapTextLines(todo.content, wrapWidth).map(line => line.text)
       const lines = wrapped.length <= 2
         ? wrapped
         : [wrapped[0]!, wrapText(wrapped.slice(1).join(''), wrapWidth, 'truncate')!]
@@ -247,7 +258,7 @@ export function GoalTodoPanel({
               truncate）。 */}
           <Box flexDirection="row" width="100%" height={1}>
             <Text color="suggestion">🎯 </Text>
-            <Box flexGrow={1} flexShrink={1}>
+            <Box ref={objectiveRef} flexGrow={1} flexShrink={1} {...goalTooltip}>
               <Text bold wrap="truncate">
                 {goal.objective}
               </Text>

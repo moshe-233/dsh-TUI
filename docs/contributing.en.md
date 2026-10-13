@@ -442,13 +442,13 @@ change, also run the closest focused script:
 | Channel submit/steer/pending behavior | `node scripts/verify-submit.mjs` |
 | Rewind/edit/resend and historical inbox cancellation | `pnpm verify:rewind-edit` |
 | Prompt queue behavior | `node scripts/verify-queue.mjs` |
-| Goal/todo projection and rendering | `node scripts/verify-channel-goal-todo.mjs` and `node scripts/verify-goal-todo.mjs` |
+| Goal/todo projection and rendering | `node scripts/verify-channel-goal-todo.mjs`, `node scripts/verify-goal-todo.mjs`, and `node --import tsx/esm scripts/verify-goal-display.mjs` (goal text display: hover full text, bare `/goal` transcript block) |
 | Compaction and folded transcript rows | `node scripts/verify-compact.mjs` |
 | Command capability facts (compaction / plan / questionnaire / pruner routing and the Help + `/` unavailable marking) | `pnpm verify:agent-capabilities` |
 | Compaction × session-switch lifecycle (cancel before the fork snapshot, persistence-classified toast) | `node --import tsx/esm scripts/verify-compact-switch.tsx` |
 | Theme loading, persistence, and runtime plugin seam | `node --import tsx/esm scripts/verify-themes.mjs`, `node --import tsx/esm scripts/verify-runtime-themes.ts` |
 | Default-reasoning-effort and similar preference chains (effortPrefs / settings defaults) | `node --import tsx/esm scripts/verify-effort-default.ts` |
-| Scrolling/sticky-bottom behavior | `node scripts/verify-scroll.mjs`, `node scripts/verify-resticky.mjs`, and the matching `repro-*` harness |
+| Scrolling/sticky-bottom behavior | `node scripts/verify-scroll.mjs`, `node scripts/verify-resticky.mjs`, `node --import tsx/esm scripts/verify-post-shrink-anchor.tsx`, and the matching `repro-*` harness |
 | Long plan-review body (`exit_plan_mode` windowing + wheel) | `node --import tsx/esm scripts/verify-plan-review-scroll.tsx` |
 | Fullscreen copy-on-select | `node scripts/verify-copy-on-select.mjs` |
 | Component-level mouse drag protocol (target capture, bubbling, click/selection compatibility, interrupted-session cleanup) | `node --import tsx/esm scripts/verify-drag-protocol.tsx` |
@@ -605,8 +605,9 @@ guide owns detailed contracts such as the toolchain and verification matrix.
   frame-coalesced emitter so `version` advances and subscribers are notified.
 - Keep long-session memory bounded. Do not remove transcript folding, replay
   coalescing, virtualization, or cache limits without a measured replacement.
-- Agent changes such as resume, rewind, model switch, and preset switch must
-  reset all session-scoped projections together. Audit rows, goals, todos,
+- Agent replacements such as resume and rewind must reset all session-scoped
+  projections together. Model-route changes preserve the agent/session and do
+  not reset history, pending messages, or loaded context. Audit rows, goals, todos,
   titles, pending messages, metrics, and loaded context for stale state.
 - Resolve agent/model/tool/preset capabilities through the mounted DSH
   services and registries. Do not guess external API shapes; inspect the

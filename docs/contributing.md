@@ -329,13 +329,13 @@ CI 回归都要跑。窄改动还要跑最近的聚焦脚本：
 | Channel submit/steer/pending 行为 | `node scripts/verify-submit.mjs` |
 | 回退后编辑重发与历史 Inbox 清理 | `pnpm verify:rewind-edit` |
 | 提示队列行为 | `node scripts/verify-queue.mjs` |
-| Goal/todo 投影与渲染 | `node scripts/verify-channel-goal-todo.mjs` + `node scripts/verify-goal-todo.mjs` |
+| Goal/todo 投影与渲染 | `node scripts/verify-channel-goal-todo.mjs` + `node scripts/verify-goal-todo.mjs` + `node --import tsx/esm scripts/verify-goal-display.mjs`（目标文本展示：悬停全文、裸 `/goal` 转录块） |
 | Compaction 与折叠 transcript 行 | `node scripts/verify-compact.mjs` |
 | 命令能力事实（compaction / plan / 问卷 / 剪枝的路由与 Help + `/` 的不可用标注） | `pnpm verify:agent-capabilities` |
 | 压缩 × 会话切换生命周期（取消先于 fork 快照、persistence 分类提示） | `node --import tsx/esm scripts/verify-compact-switch.tsx` |
 | 主题加载、持久化与运行时插件接缝 | `node --import tsx/esm scripts/verify-themes.mjs`、`node --import tsx/esm scripts/verify-runtime-themes.ts` |
 | 默认推理强度等偏好链（effortPrefs / settings 默认值） | `node --import tsx/esm scripts/verify-effort-default.ts` |
-| 滚动/粘底行为 | `node scripts/verify-scroll.mjs`、`node scripts/verify-resticky.mjs` 及对应 `repro-*` 环境 |
+| 滚动/粘底行为 | `node scripts/verify-scroll.mjs`、`node scripts/verify-resticky.mjs`、`node --import tsx/esm scripts/verify-post-shrink-anchor.tsx` 及对应 `repro-*` 环境 |
 | 计划评审长正文（`exit_plan_mode` 窗口化 + 滚轮） | `node --import tsx/esm scripts/verify-plan-review-scroll.tsx` |
 | 全屏复制即选区 | `node scripts/verify-copy-on-select.mjs` |
 | 组件级鼠标拖拽协议（目标捕获、事件冒泡、点击/选区兼容与中断收尾） | `node --import tsx/esm scripts/verify-drag-protocol.tsx` |
@@ -443,8 +443,9 @@ TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式�
   推进、订阅者被通知。
 - 保持长会话内存有界。不要在没有实测替代方案时移除 transcript 折叠、回放
   合并、虚拟化或缓存上限。
-- resume、rewind、模型切换、preset 切换等 Agent 变更必须一起重置所有会话级
-  投影。审计行、goals、todos、标题、pending 消息、指标与已加载上下文的陈旧
+- resume、rewind 等替换 Agent 的动作必须一起重置所有会话级
+  投影。模型路由切换保留同一 Agent/session，不重置历史、pending 与已加载
+  上下文。审计行、goals、todos、标题、pending 消息、指标与已加载上下文的陈旧
   状态。
 - 通过已挂载的 DSH 服务与注册表解析 agent/model/tool/preset 能力。不要猜测
   外部 API 形状；改集成时查看已安装包的类型。

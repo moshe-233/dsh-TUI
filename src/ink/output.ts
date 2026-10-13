@@ -191,6 +191,8 @@ type Options = {
   /** Paint image fallbacks as blank backing cells and collect placements. */
   terminalImages?: boolean
   imageReady?: (placement: TerminalImagePlacement) => boolean
+  /** Protocol-specific decoded raster size, measured before allocation. */
+  imageRasterBytes?: (placement: TerminalImagePlacement) => number
   /**
    * True when the active protocol paints rasters OVER the cell grid (Sixel)
    * instead of behind it (Kitty). Image-owned cells must then carry the
@@ -227,6 +229,8 @@ type ShadeOperation = {
   region: Rectangle
 }
 
+export type SoftWrapFlag = boolean | 'gap'
+
 type WriteOperation = {
   type: 'write'
   x: number
@@ -241,8 +245,10 @@ type WriteOperation = {
    * Undefined means the producer didn't track wrapping (e.g. fills,
    * raw-ansi): the rows it paints are marked "not a continuation", since it
    * replaced whatever was there — see the write case in `get()`.
+   * 'gap' marks a continuation whose separator space was elided because
+   * line i-1 exactly filled the width; copy re-inserts it.
    */
-  softWrap?: boolean[]
+  softWrap?: SoftWrapFlag[]
 }
 
 type ClipOperation = {
@@ -348,7 +354,7 @@ type NoSelectOperation = {
   region: Rectangle
 }
 
-/** Row `y` continues the row above, whose content ends at `contentEnd`. */
+/** Row `y` continues the row above; negative contentEnd restores a separator. */
 type SoftWrapRowOperation = {
   type: 'softWrapRow'
   y: number
@@ -630,6 +636,7 @@ export default class Output {
   terminalImagesEnabled: boolean
   opaqueImageBacking: boolean
   private imageReady: ((placement: TerminalImagePlacement) => boolean) | undefined
+  private imageRasterBytes: ((placement: TerminalImagePlacement) => number) | undefined
 
   private readonly operations: Operation[] = []
   private readonly imagePlacements: TerminalImagePlacement[] = []
@@ -697,6 +704,7 @@ export default class Output {
     this.terminalImagesEnabled = options.terminalImages ?? false
     this.opaqueImageBacking = options.opaqueImageBacking ?? false
     this.imageReady = options.imageReady
+    this.imageRasterBytes = options.imageRasterBytes
     this.previousImages = options.previousImages ?? []
 
     resetScreen(screen, width, height)
@@ -720,6 +728,7 @@ export default class Output {
     previousImages: readonly TerminalImagePlacement[] = [],
     imageReady?: (placement: TerminalImagePlacement) => boolean,
     opaqueImageBacking = false,
+    imageRasterBytes?: (placement: TerminalImagePlacement) => number,
   ): void {
     this.width = width
     this.height = height
@@ -727,6 +736,7 @@ export default class Output {
     this.terminalImagesEnabled = terminalImages
     this.opaqueImageBacking = opaqueImageBacking
     this.imageReady = imageReady
+    this.imageRasterBytes = imageRasterBytes
     this.previousImages = previousImages
     this.operations.length = 0
     this.imagePlacements.length = 0
@@ -857,13 +867,6 @@ export default class Output {
     const visibleRight = Math.min(this.width, left + width, Math.floor(clip?.x2 ?? this.width))
     const visibleBottom = Math.min(this.height, top + height, Math.floor(clip?.y2 ?? this.height))
     if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return false
-    const decodedBytes = source.data.byteLength
-    if (
-      this.imageDecodedBytes + decodedBytes >
-      TERMINAL_IMAGE_MAX_FRAME_BYTES
-    ) {
-      return false
-    }
     const placement: TerminalImagePlacement = {
       node,
       x: left,
@@ -877,6 +880,10 @@ export default class Output {
       ...(canCrop ? { clip: { x: visibleLeft, y: visibleTop, columns: visibleRight - visibleLeft, rows: visibleBottom - visibleTop } } : {}),
       ...(background !== undefined ? { background } : {}),
     }
+    // Bound both decoded sources and fitted uploads: downsampling
+    // must not admit more source data, and upscaling must not evade the cap.
+    const decodedBytes = Math.max(source.data.byteLength, this.imageRasterBytes?.(placement) ?? 0)
+    if (this.imageDecodedBytes + decodedBytes > TERMINAL_IMAGE_MAX_FRAME_BYTES) return false
     const graphicsReady = this.imageReady?.(placement)
     this.imagePlacements.push(graphicsReady === undefined ? placement : { ...placement, graphicsReady })
     this.imageNodes.add(node)
@@ -1013,7 +1020,7 @@ export default class Output {
    * @param softWrap - per-line soft-wrap flags parallel to text.split('\n').
    * @param lines - optional pre-split physical lines, exactly text.split('\n').
    */
-  write(x: number, y: number, text: string, softWrap?: boolean[], lines?: readonly string[]): void {
+  write(x: number, y: number, text: string, softWrap?: SoftWrapFlag[], lines?: readonly string[]): void {
     if (!text) {
       return
     }
@@ -1196,7 +1203,8 @@ export default class Output {
           // row. (This used to run in a pass after every write, which let a
           // marker outlive an overlay that overwrote the row.)
           if (operation.y > 0 && operation.y < screen.height) {
-            screen.softWrap[operation.y] = Math.max(1, operation.contentEnd)
+            const contentEnd = Math.max(1, Math.abs(operation.contentEnd))
+            screen.softWrap[operation.y] = operation.contentEnd < 0 ? -contentEnd : contentEnd
           }
           continue
         }
@@ -1259,7 +1267,7 @@ export default class Output {
           const writeX = clipHorizontally ? Math.max(x, clip.x1!) : x
           // Copy joins need only the preceding (horizontally clipped) line,
           // not every discarded line. Preserve its content-end coordinate.
-          if (softWrap && from > 0 && softWrap[from] === true) {
+          if (softWrap && from > 0 && softWrap[from]) {
             prevContentEnd = writeX + stringWidth(clipLine(lines[from - 1]!))
           }
           lines = lines.slice(from, to)
@@ -1295,8 +1303,8 @@ export default class Output {
             // from writeLineToScreen is tab-expansion-aware, unlike
             // x+stringWidth(line) which treats tabs as width 0.
             if (softWrap) {
-              const isSW = softWrap[swFrom + offsetY] === true
-              swBits[lineY] = isSW ? prevContentEnd : 0
+              const flag = softWrap[swFrom + offsetY]
+              swBits[lineY] = flag === 'gap' ? -prevContentEnd : flag ? prevContentEnd : 0
               prevContentEnd = contentEnd
             } else {
               // Paint order: a producer that doesn't track wrapping (fills,

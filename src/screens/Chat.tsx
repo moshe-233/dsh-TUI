@@ -22,7 +22,7 @@ import { formatClock } from '../trajectory/format.js'
 import { homeDir } from '../utils/paths.js'
 import { execFileNoThrow } from '../utils/execFileNoThrow.js'
 import type { LlmModelInfo, LlmProviderInfo } from '../adapter/ports/channel-view.js'
-import { cleanRenderText, cleanScalarText } from '../dsh-adapter/sanitize.js'
+import { cleanBlockLines, cleanRenderText, cleanScalarText } from '../dsh-adapter/sanitize.js'
 import { readModelRecents, recordModelUse, type ModelRecentsRef } from '../modelRecents.js'
 import { WORKING_GATE_NOTICES } from '../commands.js'
 import type { ChannelUi as Channel } from '../adapter/channel/ui-policy.js'
@@ -217,6 +217,11 @@ const STATUS_VIEW_UI = Object.freeze({
 const NO_EVENTS: readonly SessionEvent[] = []
 
 const COMMAND_RESULT_CELLS = 200
+
+/** Per-line width budget for a transcript block (`/plugins`, `/goal`): much
+ *  wider than COMMAND_RESULT_CELLS, whose 200-cell single-line rule cannot
+ *  carry a full goal objective. Still a bound, not "no limit". */
+const LOCAL_BLOCK_CELLS = 4000
 
 /** Ceiling for one `dsh-tui migrate` child run. Discovery parses every source
  *  file, but a healthy import of thousands of conversations finishes well
@@ -840,7 +845,7 @@ export function Chat({
    * "点了没反应"，状态还滞留着、等界面关掉才突然弹出来。默认收，白名单只留给覆盖层。
    */
   const overlayCommandNames = React.useMemo(
-    () => new Set(['model', 'effort', 'plan', 'preset', 'permission', 'kernel']),
+    () => new Set(['model', 'effort', 'plan', 'preset', 'permission', 'kernel', 'dsh', 'codex', 'claude']),
     [],
   )
   /**
@@ -870,7 +875,7 @@ export function Chat({
     }).catch(() => undefined)
   }, [launchpadShown])
   const canInstallSdk = onResolveSdkInstall !== undefined
-  const { currentId: kernelCurrentId, options: kernelOptions, open: openKernelPicker, pick: pickKernel, reprobe: reprobeKernels } = useKernelPicker({
+  const { currentId: kernelCurrentId, options: kernelOptions, open: openKernelPicker, pick: pickKernel, pickById: pickKernelById, reprobe: reprobeKernels } = useKernelPicker({
     channel, kernelVersion, kernelEntries, launchpadShown, onProbeKernels, onSwitchBackend, canInstallSdk, dispatchOverlay,
   })
   /** 当前内核那一行：短名给落地页入口、PromptInput 的不可用提示等消费（同源，
@@ -896,7 +901,13 @@ export function Chat({
     sdkInstallRef.current = installation
     const target = surface.resolveTarget()
     if (target.kind === 'profile') {
-      setSdkPhase({ kind: 'confirm', dir: target.dir, version: surface.version, specifier: surface.specifier })
+      setSdkPhase({
+        kind: 'confirm',
+        dir: target.dir,
+        version: surface.version,
+        specifier: surface.specifier,
+        ...(sdkOverlay.foundCli === undefined ? {} : { foundCli: sdkOverlay.foundCli }),
+      })
     } else {
       setSdkPhase({ kind: 'no-target', reason: target.kind === 'standalone' ? 'standalone' : 'no-profile' })
     }
@@ -2351,11 +2362,19 @@ export function Chat({
    * plugin (plan/goal/…) dispatches through the command registry, whose
    * result text lands as a notification. `rawInput` carries the text after
    * the command name (`/plan off` → ` off`).
+   *
+   * `render.block` prints a multi-line report the way `/plugins` prints one:
+   * a `local` echo row plus one wrapped `local-output` row per line, in the
+   * transcript (native scrollback in inline mode). A single truncated toast
+   * row cannot carry a full goal objective, so the bare `/goal` status query
+   * asks for the block; errors always notify — they want the color and the
+   * transient read.
    */
   const runExternalCommand = (
     name: string,
     rawInput: string,
     images: readonly ComposerImageRef[] = [],
+    render?: { readonly block?: boolean },
   ): Promise<boolean> => {
     const originAgentBinding = channel.agentBindingGeneration
     return channel.runExternalCommandOutcome(name, rawInput, images).then((outcome) => {
@@ -2364,9 +2383,15 @@ export function Chat({
         channel.notify(t('command-not-found', { name }), { color: 'error' })
         return false
       }
-      const cleaned = cleanRenderText(outcome.text, COMMAND_RESULT_CELLS)
-      if (cleaned !== '') {
-        channel.notify(cleaned, outcome.kind === 'error' ? { color: 'error' } : undefined)
+      if (render?.block === true && outcome.kind !== 'error') {
+        // Per-line sanitize: the newlines here are the report's structure.
+        const lines = cleanBlockLines(outcome.text, LOCAL_BLOCK_CELLS)
+        if (lines.length > 0) channel.pushLocal(`/${name}`, lines, { lineLimit: LOCAL_BLOCK_CELLS })
+      } else {
+        const cleaned = cleanRenderText(outcome.text, COMMAND_RESULT_CELLS)
+        if (cleaned !== '') {
+          channel.notify(cleaned, outcome.kind === 'error' ? { color: 'error' } : undefined)
+        }
       }
       return outcome.consumeDraft
     }).catch((error: unknown) => {
@@ -2987,8 +3012,8 @@ export function Chat({
         setHelpOpen(true)
         return true
       case 'model': {
-        // `/model <provider/model>` switches directly (same live-fork path
-        // as the picker's Enter), bare `/model` opens the picker.
+        // `/model <provider/model>` switches directly (same in-session route
+        // switch as the picker's Enter), bare `/model` opens the picker.
         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
         if (parts.length > 0) {
           setHelpOpen(false)
@@ -3848,7 +3873,11 @@ export function Chat({
         // default branch below would dispatch it.
         if (channel.commandList.some(command => command.external && command.name === 'goal')) {
           setHelpOpen(false)
-          return runExternalCommand(name, rawInput, images)
+          // Bare `/goal` is DSH's status query. Print it as a transcript
+          // block: inline mode sees no pointer events, so the hover tooltip
+          // cannot carry the objective there, and the toast truncates it to
+          // one row.
+          return runExternalCommand(name, rawInput, images, { block: rawInput.trim() === '' })
         }
         // Another backend: the channel core's host over its typed `goals`
         // capability. None (DSH without the row, or a backend's own `goal`
@@ -3865,7 +3894,7 @@ export function Chat({
         const command = parseGoalCommand(rawInput)
         switch (command.kind) {
           case 'status':
-            channel.pushLocal('/goal', goalStatusLines(channel.goal))
+            channel.pushLocal('/goal', goalStatusLines(channel.goal), { lineLimit: LOCAL_BLOCK_CELLS })
             return true
           case 'invalid':
             channel.notify(command.reason, { color: 'error' })
@@ -3889,13 +3918,18 @@ export function Chat({
         return true
       }
       case 'kernel':
-        // 内核选择器，每个内核下都可用（在对话页里切回 DSH 只有这一条路）。
+        // 内核选择器，每个内核下都可用。
         // 确认后由组合根的 onSwitchBackend 记住选择并以新内核重启。与 /help、
         // 参数行一致：选择器已开着就收起，没开才打开。
         setHelpOpen(false)
         if (overlay.kind === 'kernel') dispatchOverlay({ type: 'close' })
         else openKernelPicker()
         return true
+      case 'dsh':
+      case 'codex':
+      case 'claude':
+        setHelpOpen(false)
+        return pickKernelById(name).then(() => true)
       case 'restart':
         // pi-style reload tail: /reload cannot re-read boot-time-only state
         // (cordis.yml root config, frozen fullscreen layout, newly built

@@ -18,6 +18,7 @@
 import type { BackendLocale } from '../../agent/backend.js'
 import type { ElicitationText } from '../shared/elicitation.js'
 import { fillTemplate, pickLocalizedText, type LocalizedText, type TextParams } from '../shared/localized-text.js'
+import { pickPlatformText } from '../shared/platform-text.js'
 
 /**
  * Every string of this backend. `zh` and `en` are both required
@@ -103,6 +104,9 @@ const texts = {
   'claude-version-drift': { zh: 'Claude CLI {{version}} 未经本版 dsh-tui 验证（已验证：{{validated}}），继续运行', en: 'Claude CLI {{version}} is not validated with this dsh-tui (validated: {{validated}}); continuing' },
   'claude-sdk-drift': { zh: 'Claude Agent SDK {{version}} 与验证版本 {{validated}} 不一致，继续运行', en: 'Claude Agent SDK {{version}} differs from the validated {{validated}}; continuing' },
   'claude-sdk-missing': { zh: '未安装 Claude Agent SDK：在 dsh-tui 安装目录运行 pnpm add @anthropic-ai/claude-agent-sdk@{{version}}', en: 'The Claude Agent SDK is not installed: run pnpm add @anthropic-ai/claude-agent-sdk@{{version}} in the dsh-tui install directory' },
+  // Optional second line of the SDK-missing hint.
+  'claude-sdk-missing-found-cli': { zh: '已发现本机 Claude Code {{version}}（{{path}}）', en: 'Found a local Claude Code {{version}} ({{path}})' },
+  'claude-sdk-missing-found-cli-path': { zh: '已发现本机 Claude Code：{{path}}', en: 'Found a local Claude Code: {{path}}' },
   'claude-resume-not-found': { zh: '本机 Claude 会话库中没有会话 {{id}}', en: 'No Claude session {{id}} in the local session store' },
   'claude-rewind-files-unavailable': { zh: '该会话没有可用的文件检查点', en: 'No file checkpoints are available for this session' },
   'claude-fork-empty': { zh: '会话还没有保存任何消息，无可分叉的内容', en: 'Nothing to fork yet — the session has no saved messages' },
@@ -215,14 +219,20 @@ const texts = {
   },
   // ── Strings this backend shares with platform surfaces the host also
   //    renders (the status line's rate-limit window, /doctor, rename and
-  //    rewind outcomes). The host keeps its own entries for DSH sessions and
-  //    codex; a backend cannot read them (D2), so the copy is repeated here. ──
-  'doctor-unknown': { zh: '未知', en: 'unknown' },
-  'rewind-first-message': { zh: '不能回退到第一条消息之前', en: 'Cannot rewind past the very first message' },
-  'rename-failed': { zh: '重命名失败 · {{err}}', en: 'Rename failed · {{err}}' },
-  'rename-usage': { zh: '用法  /rename <新名称>', en: 'Usage  /rename <new title>' },
-  'status-rate-limit-five-hour': { zh: '5小时', en: '5h' },
-  'status-rate-limit-seven-day': { zh: '7天', en: '7d' },
+  //    rewind outcomes). They are not a copy kept here any more: the values
+  //    come from the one source in the neutral seam
+  //    (`src/backends/shared/platform-text.ts`), which the host dictionary
+  //    reads too, so the two sides cannot drift apart. D2 is unchanged for a
+  //    third-party contribution — it still cannot read the host dictionary,
+  //    and the seam is out of reach from the layers a contribution occupies. ──
+  ...pickPlatformText([
+    'doctor-unknown',
+    'rewind-first-message',
+    'rename-failed',
+    'rename-usage',
+    'status-rate-limit-five-hour',
+    'status-rate-limit-seven-day',
+  ]),
 } as const satisfies Record<string, { readonly zh: LocalizedText; readonly en: LocalizedText }>
 
 /** Read-only view of {@link texts} for audits (scripts/verify-i18n.ts and the

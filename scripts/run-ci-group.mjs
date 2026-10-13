@@ -70,6 +70,8 @@ const GROUPS = {
 // 内核选择器组件：标题、行标签与副标题（版本、不可选原因）、当前项勾选、
 // 不可选行变暗但焦点指针仍显示、pinned 提示行、鼠标点行、未接 onPick 时无 hover。
     ['verify-kernel-picker', ['node', '--import', 'tsx/esm', 'scripts/verify-kernel-picker.tsx']],
+// 内核快捷命令：真实 Chat 的直达切换、探测等待、回合门禁、首屏与安装提示。
+    ['verify-kernel-commands', ['node', '--import', 'tsx/esm', 'scripts/verify-kernel-commands.tsx']],
 // SDK 安装向导（内核选择器「未安装」行进入）：各步骤态的正文与提示行、
 // 手动兜底命令、窄终端截断、en 态文案。
     ['verify-sdk-install-wizard', ['node', '--import', 'tsx/esm', 'scripts/verify-sdk-install-wizard.tsx']],
@@ -106,6 +108,8 @@ const GROUPS = {
     ["verify-streaming-markdown-spacing", ['node', '--import', 'tsx/esm', 'scripts/verify-streaming-markdown-spacing.tsx']],
     ['verify-text-measure-cache', ['node', '--import', 'tsx/esm', 'scripts/verify-text-measure-cache.ts']],
     ['verify-text-wrap-geometry', ['node', '--import', 'tsx/esm', 'scripts/verify-text-wrap-geometry.tsx']],
+    ['verify-wrap-exact-fill', ['node', '--import', 'tsx/esm', 'scripts/verify-wrap-exact-fill.tsx']],
+    ['verify-component-wrap-exact-fill', ['node', '--import', 'tsx/esm', 'scripts/verify-component-wrap-exact-fill.tsx']],
     ['verify-streaming-markdown-blocks', ['node', '--import', 'tsx/esm', 'scripts/verify-streaming-markdown-blocks.tsx']],
 // Markdown token 覆盖：真实 lexer 产出的 token 类型必须与白名单完全一致
 // （marked 升级带来新类型即失败）；任务列表 [x]/[ ] 在各种列表形态下的位置。
@@ -205,6 +209,9 @@ const GROUPS = {
 // 滚动窗口与 shrink 边界。measure-depth 需生产模式（minified #185）。
     ["verify-message-measure-depth", ['node', '--import', 'tsx/esm', 'scripts/verify-message-measure-depth.tsx']],
     ["verify-scroll", ['node', 'scripts/verify-scroll.mjs']],
+// 流式行离开虚拟窗口时保留实测行高：不得因回落到 2 行估算而塌陷，
+// 不得改写 committed/painted 位置、接回跟随或移动 xterm 中的正文锚点。
+    ["verify-post-shrink-anchor", ['node', '--import', 'tsx/esm', 'scripts/verify-post-shrink-anchor.tsx']],
 // 长会话冷/热窗口跳转、绘制边界发布与回底挂载预算（不能等滚轮救活）。
     ['verify-scroll-jumps', ['node', '--import', 'tsx/esm', 'scripts/verify-scroll-jumps.tsx']],
     ['verify-scroll-jumps-narrow', ['node', '--import', 'tsx/esm', 'scripts/verify-scroll-jumps.tsx'], { DSH_TEST_COLUMNS: '60' }],
@@ -462,14 +469,17 @@ const GROUPS = {
 // 照 verify-backend-registry 的手法）。boot 侧的两条拒绝分支由 verify-startup-argv 从编译
 // 产物里切出来真跑，本脚本不重复。
     ["verify-resume-target", ['node', '--import', 'tsx/esm', 'scripts/verify-resume-target.ts']],
-// 后端贡献族（B-2，W-1）：三个内置 manifest 的投影必须过族内验证器、不漏 in-tree 私有键、
-// 投影是纯的；能力词表与 `SessionCapabilities` 成员双向一致（TS AST 提取）、保留字 id 表与
-// 注册表 built-in 双向一致；准入四种判定各一条（含 waiting_authorization 的拒绝形状）；
-// scripts/fixtures/probe-backend 钉资源不变量（未加载即不 import / 不关池、只关加载过的、
-// 幂等）、两种安装面形态、声明覆盖运行期能力；坏声明逐条必拒；关键判据各配一条坏基线
-// （注入 mutated 输入后必须红）；末尾是 W-1 的范围守卫——`Backend` 不在宿主 supported
-// contracts 里、`registryEntries()` 仍不读 registry 的 extensions 段、src 里没有生产代码
-// 注册这些贡献定义。**这几条是故意钉住"尚未接线"的状态**：C 段真去接 W-2 时就该来改它们。
+// 后端贡献族（B-2；W-1 → W-2 已接线）：三个内置 manifest 的投影必须过族内验证器、不漏
+// in-tree 私有键、投影是纯的；能力词表与 `SessionCapabilities` 成员双向一致（TS AST 提取）、
+// 保留字 id 表与注册表 built-in 双向一致；准入四种判定各一条（含 waiting_authorization 的
+// 拒绝形状）；scripts/fixtures/probe-backend 钉资源不变量（未加载即不 import / 不关池、
+// 只关加载过的、幂等）、两种安装面形态、声明覆盖运行期能力；坏声明逐条必拒；关键判据各配
+// 一条坏基线（注入 mutated 输入后必须红）；**末节是 W-2 的接线正断言**（它们取代了 B 段故意
+// 留下的四条 W-1 范围守卫）：宿主 supported contracts 含 `Backend`、`registryEntries()` 读
+// registry 的 extensions 段、`tui.backend` 条目把 contract profile 钉在 sha256 上、唯一注册
+// 贡献定义的生产模块就是规范准入 catalog 的装配点；以及 descriptor 的**双向**发布证据——
+// 探针应答才发布（用 pin 住的 profileHash），探针缺席/答"不可准入"就不发布并报出丢弃原因。
+// 两条新坏基线（删条目 / 漂移 profileHash）就地证明这几条不是装饰。
     ["verify-backend-contribution", ['node', '--import', 'tsx/esm', 'scripts/verify-backend-contribution.ts']],
 // 后端注册表回归（P0 Stage A + B-1）：注册闸门（重复 id / 保留 id / 非 inTree 用宿主
 // 词表 / native 越权 / 安装配方缺字段）、**安装面按声明不按 id**（非 inTree 条目声明
@@ -494,8 +504,8 @@ const GROUPS = {
 // 端到端：ready 后旧进程不写 1049l，ready 前死亡与旧版 replacement 都只回主屏一次。
     ["verify-handoff-atomic", ['node', '--import', 'tsx/esm', 'scripts/verify-handoff-atomic.ts']],
 // 真实 PTY 下的完整交接链：1049h/l 各恰好一次且闭合晚于首帧、旧进程 spawn 前后
-// stdin 无 reader、replacement 的 isTTY/尺寸/raw mode。依次尝试 node-pty、POSIX
-// script、pipe（pipe 档跳过设备断言并注明）；Linux CI 走 script。
+// stdin 分离后不再预读/抢答复、replacement 的 isTTY/尺寸/raw mode。
+// node-pty 与 POSIX script 都应答 DA1；pipe 档跳过设备断言并注明。
     ["verify-handoff-pty-gate", ['node', '--import', 'tsx/esm', 'scripts/verify-handoff-pty-gate.mjs']],
 // 跨代理会话迁移回归（claude-code/codex/omp/zcode/grok-build → DSH sessions）：
 // 全程跑官方读取链——Session.append 生成骨架（turn 配对/reasoning/
@@ -642,6 +652,8 @@ const GROUPS = {
     ["verify-session-artifact-cache", ['node', 'scripts/verify-session-artifact-cache.mjs']],
 // 跨进程首屏快照：不等慢枚举、来源隔离、失败保留、空库清空与迟到守卫。
     ["verify-session-list-snapshot", ['node', 'scripts/verify-session-list-snapshot.mjs']],
+// Web 判空投影：真实注册表读写、旧版字段兼容、注册顺序与上游语义对照。
+    ["verify-session-list-metadata", ['node', '--import', 'tsx/esm', 'scripts/verify-session-list-metadata.ts']],
 // 空会话须完整读取后才能判定：截断/损坏、帧数上限、纯图片输入与旧缓存
 // 不得隐藏真实历史或进入清理名单；真实 JSONL 重开验证落盘后的可见性。
     ['verify-session-emptiness', ['node', '--import', 'tsx/esm', 'scripts/verify-session-emptiness.ts']],
@@ -654,6 +666,9 @@ const GROUPS = {
 // 空草稿不留残留。这条测的是「渲染期写回会先于认领 effect 覆盖草稿」，
 // 只靠打字或由浮层换屏都到不了。
     ["verify-composer-draft-handoff", ['node', '--import', 'tsx/esm', 'scripts/verify-composer-draft-handoff.tsx']],
+// 同会话换模型：真实 channel 门面与 Chat 保留文本、光标和图片；整屏停放、
+// inline/fullscreen × 常规/窄终端，以及 /new 清空旧草稿的对照。
+    ["verify-composer-draft-model-switch", ['node', '--import', 'tsx/esm', 'scripts/verify-composer-draft-model-switch.tsx']],
 // Tooltip 悬停提示回归：悬停截断元素 ~600ms 后弹完整内容浮层——延迟未到
 // 不出现、到点内容正确、leave 即隐、leave 早于延迟取消、自定义 delayMs、
 // 多行内容锚点上方、屏顶锚点转下方、resize 隐藏（几何失效）、窄屏水平钳制；
@@ -809,6 +824,10 @@ const GROUPS = {
 // token/条的舍入差），中文/全角按 ~1.4 字符/token、其它脚本按 ~2；单调不减、
 // 非负、代理对与 ANSI 转义的处理都在这里钉死。
     ["verify-cjk-token-estimate", ['node', '--import', 'tsx/esm', 'scripts/verify-cjk-token-estimate.ts']],
+// 目标文本展示契约（全文浮层已移除）：被截断的目标悬停出全文、点击不再打开任何
+// 浮层（键盘留在输入框）、裸 `/goal`（DSH 注册表行）打印成 /plugins 式转录块——
+// inline 无指针事件，块是那里读全文的唯一路径，旧的单行 toast 会折叠并截断它。
+    ['verify-goal-display', ['node', '--import', 'tsx/esm', 'scripts/verify-goal-display.mjs']],
     ["verify-channel-goal-todo", ['node', '--import', 'tsx/esm', 'scripts/verify-channel-goal-todo.mjs']],
 // 目标预算与后端中立的 /goal（goals 能力）：语法（--budget 50k、控制词、无效预算）、
 // 「已用 12.3k / 50k tokens · 4m」中英文读数、能力快照（有能力才提供 /goal，无能力即
@@ -1113,15 +1132,12 @@ const GROUPS = {
 // （全量/截断/继承前缀跳过）、SessionTree 屏幕无头组装
 // （渲染、Enter 菜单、字母直达执行、Esc）。
     ["verify-session-tree", ['node', '--import', 'tsx/esm', 'scripts/verify-session-tree.tsx']],
-// 压缩 × 会话切换生命周期：压缩进行中 /model、/resume、/rewind 等必须先
-// abort 并等压缩落定再 fork 快照（后台提交 checkpoint = "压缩失败后换模型
-// 丢上下文"事故根因）；persistence 类失败与通用失败分开提示。
+// /model 保留压缩；fork/rewind 在快照前取消压缩。落盘失败须与通用失败区分。
     ["verify-compact-switch", ['node', '--import', 'tsx/esm', 'scripts/verify-compact-switch.tsx']],
     ["verify-live-session", ['node', '--import', 'tsx/esm', 'scripts/verify-live-session.ts']],
-// 血缘 × 自动标题回归：/model 在还没有人说过话的会话上不得写 parentSession
-// （上游 first-prompt 标题 provider 只为无 parent 的会话生成标题，fork 永不
-// 重试）；已有对话的源仍必须保留分支血缘，既有 /model 语义不得被削掉。
+// /model 保留会话与自动标题资格；路由及其异步快照跟随停放中的 agent。
     ["verify-session-title-lineage", ['node', '--import', 'tsx/esm', 'scripts/verify-session-title-lineage.ts']],
+    ["verify-model-route-lifetime", ['node', '--import', 'tsx/esm', 'scripts/verify-model-route-lifetime.ts']],
     ["verify-session-v3", ['node', '--import', 'tsx/esm', 'scripts/verify-session-v3.ts']],
     ["verify-session-tree-generations", ['node', '--import', 'tsx/esm', 'scripts/verify-session-tree-generations.ts']],
 // 裸 ● 空行回归：纯思考/纯工具步骤（无文本块）的 assistant/message

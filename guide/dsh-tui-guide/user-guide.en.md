@@ -306,6 +306,7 @@ one-column seam between the two surfaces.
   drags, plus its own hearts and thumbs-up) or `whale` (the splash's pixel whale). **On terminals
   with an image protocol (kitty/sixel) whaleGirl renders at native 240px with all 267 frames**
   (transparent float, decoded on demand); without one it falls back to the character-art form.
+  The splash uses these skins only under the DeepSeek brand: `deepy` and `whaleGirl` replace the maid portrait; choose `whale` and enable Maid portrait to use it. Claude uses its own artwork; Codex uses its own raster portrait or the maid character-art fallback. Both brands ignore these settings for splash artwork. See the [precedence table](configuration.en.md).
 
 | Subcommand | Effect |
 |---|---|
@@ -328,7 +329,7 @@ one-column seam between the two surfaces.
 
 ## 3. Command reference
 
-The command menu = built-in commands (58, aliases included) + DSH registry commands (`/plan` `/goal` etc.) + the skill catalog
+The command menu = built-in commands (aliases included) + DSH registry commands (`/plan` `/goal` etc.) + the skill catalog
 (completion only, hidden from the `/help` menu). `/lang` switches the UI and command descriptions between English and Chinese.
 
 ### 3.1 Session
@@ -341,7 +342,8 @@ The command menu = built-in commands (58, aliases included) + DSH registry comma
 | `/tree` | none | session fork tree: hover to preview, click to rewind / fork / switch branch |
 | `/fork` | none | copy the current session into a resumable clone (original unaffected) |
 | `/restart` | none | restart the process and resume this session (rejected mid-turn, `Ctrl+C` first) |
-| `/kernel` | none | kernel picker: switch between DSH and the experimental Claude backend; remembers the pick and restarts into a new session (rejected mid-turn); see [Claude backend](claude-backend.en.md) |
+| `/kernel` | none | kernel picker: switch between DSH, Codex and the experimental Claude backend; remembers the pick and restarts into a new session (rejected mid-turn); see [Claude backend](claude-backend.en.md) |
+| `/dsh` / `/codex` / `/claude` | none | directly choose the named kernel through the same checks and restart flow as `/kernel`; the current kernel does not restart, a running turn blocks switching, and missing Claude opens the install wizard |
 | `/rename` | `<新名称>` | rename the current session (no arg shows the current title and usage) |
 | `/recap` | none | recent-activity summary (one line) + suggested title; press `a` or click to apply the title. With `dsh-tui.recapOnOpen` (default on), opening/resuming a session auto-shows a divider + `回顾：` summary line at the bottom; hover to view actions, click to expand, gone after the next message |
 | `/workspace` | `resume` / `rename <名称>` / `open <路径或URI>` | manage workspaces; `open` accepts an absolute path, file URI, or plugin scheme |
@@ -376,7 +378,7 @@ The command menu = built-in commands (58, aliases included) + DSH registry comma
 | Command | Args | Effect |
 |---|---|---|
 | `/channel` | none | relay channel profiles (Claude backend only); **import / add / manage and any switch that needs a process restart are refused while a turn runs** (the picker itself still opens), see [Interaction](interaction.en.md#channel-profiles-channel-claude-only) |
-| `/model` | none | model selector; **switching = fork the session** (history kept, only routing changes; a session nobody has typed into records no branch, keeping automatic titles for its first prompt), choice persisted to `~/.dsh-tui/model.json` |
+| `/model` | none | model selector; **switch within the same session** (ID, history, and title kept; the next request uses the new route), choice persisted to `~/.dsh-tui/model.json` |
 | `/effort` | `status` / `<id>` | reasoning effort: no-arg slider (`←/→` adjust); `status` current level; `<id>` set directly. Persisted to `~/.dsh-tui/effort.json` and reused by the next launch (it outranks the cordis.yml `effort` default); new-session start level follows /settings `effortDefault` (§5.3) |
 | `/thinking` | none | extended-thinking display toggle (thinking expands item by item while streaming) |
 | `/tokens` | none | three separate figures, never two different quantities side by side: **this request**'s upload (input + cache read + cache write — the harness's four buckets are disjoint), the **session totals** (uncached input / output / cache read / cache write), and **context occupancy** |
@@ -479,7 +481,9 @@ Full-screen view of the whole session timeline (doesn't pollute scrollback); key
 
 ### 4.6 Model switching and presets
 
-- `/model`: selector. **Switching = fork the session** (history kept, only routing changes, the old session stays in `/resume`);
+Switching within a session requires DSH `0.1.2-alpha.3` or later; older versions prompt an upgrade so subagents cannot keep using the previous model. Parked sessions retain their selection.
+
+- `/model`: selector. **Switch within the same session** (ID and history kept; the next request uses the new route);
   persisted to `~/.dsh-tui/model.json` and reused by the next launch (a `provider`/`model`
   pair in cordis.yml/profile is only the first-run deployment default).
 - DSH provider tabs start with **Recently used**, and `Tab` / `Shift+Tab` switch providers; Codex and Claude show their catalogs directly without these tabs. All backends use `↑/↓` to select a model, `←/→` to adjust its effort, `Enter` to apply both, and `Esc` to cancel the draft. Click the available tabs, models, effort levels, or select/cancel hints; clicking an effort level immediately applies the focused model and that effort and closes the picker. The wheel moves model focus.
@@ -507,6 +511,9 @@ Keys are in §2.7. Key points:
 - `/plan` `/goal` `/feedback` `/permission` come from the DSH registry, merged into the `/` menu.
 - **Goals/Todos panel appears automatically**: when the model writes a goal/todo, it renders above the input
   (🎯 goal + phase badge + tree todo), no action needed; with a split it moves to the `todo` panel on the right (see §2.8).
+  The goal bar keeps a one-line summary: hovering truncated goal text reads the whole objective, and a bare `/goal` prints the
+  full status (objective, phase, rounds or budget, available commands) as a `/plugins`-shaped transcript block — inline mode has
+  no pointer, so a long objective is read from that block.
 
 ### 4.9 MCP / Workspace / other
 
@@ -532,7 +539,7 @@ An empty session shows the whale logo area at the top (scrolls away with the con
 
 - **Intro animation** (~3.4 s, three picked each launch, `/deepseek` egg re-rolls): classic / heart / sleep.
 - **Welcome idle animation** (`whaleIdle`, default on): fin, blink, tail wag, sleeps with Z after 10 s idle; **click to show a heart and wake it**.
-- **Maid portrait** (`whaleGirl`, default off): swaps the header's pixel whale for the author-drawn maid — FIRST as a **real raster** through the terminal image protocols (Kitty/Sixel); terminals without graphics support fall back to the character-art maid. **Click her** and she turns into the "happy" portrait for a few seconds, then eases back on her own; the first agent task freezes her (no more reactions).
+- **Maid portrait** (`whaleGirl`, default off): under the DeepSeek brand, enable it with Companion skin set to `whale` to show the author-drawn maid — a **real raster** through Kitty/Sixel when available, with character-art fallback. **When the raster portrait is displayed, click her** to show the happy portrait for a few seconds; the first agent task freezes her reactions. Character-art fallback stays static. The `deepy` and `whaleGirl` skins take the slot instead; Claude uses its own artwork; Codex uses its own raster portrait or the maid character-art fallback. Both brands ignore these settings for splash artwork. See the [precedence table](configuration.en.md).
 - After the first agent task, it freezes to a static frame (`/new` re-enters the welcome period).
 - Text column right of the whale: `✦ dsh-TUI v版本号` →
   `DEEPSEEK / HARNESS` big text (bold glyphs, both rows the same width, one blank row between) →
@@ -562,7 +569,20 @@ An empty session shows the whale logo area at the top (scrolls away with the con
 **Row 1 — context segment bar** (`/settings → statusBar.contextBar`, default on)
 
 - Colored by content type (system / prompt / assistant / thinking / tools).
-- Segment token counts are a **local estimate** (CJK/full-width ≈1.4 chars/token, ASCII ≈4, other scripts ≈2): they describe what the bar is made of and **never** feed the occupancy total — that comes from the ctx reading below.
+- Colored by content type (system / prompt / assistant / thinking / tools). **The used span's length is
+  exactly the reading** (the 13k of `13k/64k`): the five segments only split that span by composition, so
+  an over- or under-estimate can no longer draw the bar short or long.
+- The composition comes from two layers: the harness's `contextBreakdown` projection (system prompt / the
+  request envelope's tool schemas / every other visible node, injected context included) plus this app's
+  local estimate, which alone splits the meter's message side into prompt / assistant / thinking / tool
+  results (ASCII ≈4 chars/token, CJK ≈1.4, other scripts ≈2). A meter that predates the projection leaves
+  the local estimate as the only source.
+- The hover legend reports those same shares, attributed to the occupancy, so **the five segments plus
+  free add up to the window** (`1.2k`-style abbreviations cost at most half a unit each) instead of
+  reporting a second, smaller total. The estimates themselves **never** feed the occupancy total — that
+  comes from the ctx reading below.
+- When no content category can be attributed, the bar keeps one used block and both the bar and ctx
+  hover details report its measured `used` count instead of five zero categories.
 - The only text on the bar is the right-edge reading `13k/64k 19.5%` (narrow screens show only `19.5%`).
 - The reading colors by usage: <80% gray-blue, **≥80% amber, ≥95% red**.
 - Hover the whole bar for the legend: color block + name + token count (narrow screens shorten the names).
@@ -610,7 +630,7 @@ Common items below, full list on the /settings screen. Most topics (**Appearance
 | whale | pixel whale header (default on); three intro animations picked per launch (classic/heart/sleep), `/deepseek` egg re-rolls |
 | whaleIdle | whale welcome idle animation (default on): fin/tail/blink, sleeps with Z after 10 s idle; click for a heart. Freezes after the first task |
 | splashFont | big-text face on the header splash: Daily rotation (default, changes with the local date) / bold / square / bevel / wide / dot matrix / stencil / thin (classic) / slab. Picking a face pins it; picking Daily rotation restores the rotation. Applies immediately |
-| whaleGirl | maid portrait (default off): swaps the header's pixel whale for the author-drawn maid as a **real raster** (Kitty/Sixel); falls back to the pixel whale without graphics support |
+| whaleGirl | maid portrait (default off): under the DeepSeek brand, enable with `companion.skin=whale`; the `deepy` and `whaleGirl` skins override it. Claude uses its own artwork; Codex uses its own raster portrait or the maid character-art fallback. Both brands ignore these settings for splash artwork. Real raster (Kitty/Sixel), with character-art fallback. See the [precedence table](configuration.en.md) |
 | diffLayout | Edit/Write diff layout: auto (two columns ≥110 cols) / split / unified |
 | thinkingFold | thinking block: preview (2-3 line preview + folded when settled) / full (expanded to end of turn) |
 | btw.contextBudget | Total character budget of recent Q/A pairs carried into a `/btw` follow-up (default 24000, range 1000-200000); oldest whole pairs are dropped first. Applies immediately |
@@ -677,10 +697,10 @@ When dsh exits unexpectedly, safe mode gives a **read-only** environment diagnos
 
 | Item | Command | Notes |
 |---|---|---|
-| Model | `/model` | selector; **switching = fork the session** (history kept, routing only); persisted to `~/.dsh-tui/model.json` and reused on restart and `/new` — it OUTRANKS a `provider`/`model` pair written in cordis.yml/profile (that pair is only the first-run deployment default). Never chosen → the configured pair, else the harness default (currently `deepseek-flash`) |
+| Model | `/model` | selector; **switch within the same session** (ID and history kept; subsequent requests use the new route); persisted to `~/.dsh-tui/model.json` and reused on restart and `/new` (a resumed session keeps its last recorded request route) — it OUTRANKS a `provider`/`model` pair written in cordis.yml/profile (that pair is only the first-run deployment default). Never chosen → the configured pair, else the harness default (currently `deepseek-flash`) |
 | Reasoning effort | `/effort` | slider (`←/→` live) or `/effort <id>`; `/effort status` for current; new-session default in /settings → default reasoning effort |
 | Agent preset | `/preset` | `standard` / `ptc` (old 0.1.1 name `code`) / `minimal` / `cordis` / **Liangshen mode `liangshen`**; **can't switch an already-started session** |
-| Theme | `/theme` | `auto` (OSC 11 follows terminal background) / `light` / `dark` / `dark-ansi`; `/theme <名>` direct; `/theme status` for the result |
+| Theme | `/theme` | `auto` (OSC 11 follows terminal background) / `light` / `dark` / `dark-ansi` / `pink-day` / `pink-night` / `pink-ansi`; `/theme <名>` direct; `/theme status` for the result |
 | Custom theme | manual | `~/.dsh-tui/themes/<名>.json`, `{base, colors}` format, hot-swap on select; naming it `auto` gets shadowed by the built-in |
 | Language | `/lang` | `en` / `zh` hot switch; priority `DSH_TUI_LANG` > profile config (legacy: settings.yaml user layer > cordis.yml) > persisted |
 | Status animation | `/activity` | selector or `/activity frames <名>`; default `moon8`, `random` randomizes |
@@ -727,7 +747,7 @@ When dsh exits unexpectedly, safe mode gives a **read-only** environment diagnos
 12. Session manager (`/resume`, `/home`, `/agentview`, `/bg`, or `⌸` at the input line start):
     type to filter, `★` pin, `Ctrl+X` stop a background session; switching just parks it.
 13. Mid-turn, `/compact`, `/model`, `/restart` are rejected — `Ctrl+C` first or wait for the turn to end.
-14. `/model` switch = fork (history kept), persisted and reused on restart and `/new`.
+14. `/model` switches subsequent requests in the same session (ID and history kept); the choice is saved as the default for new sessions, while a resumed session keeps its last recorded request route.
 
 **Ask the manual**
 

@@ -1,5 +1,5 @@
 /** Host-owned in-process Channel contract. No runtime or upstream imports. */
-import type { ChatRow, AgentStatus, TokenUsage, TurnUsageSummary, SessionCostByModel, SubagentCostEntry, NotificationItem, ChannelGoal, TodoPanelItem, LoadedContext, PendingMessage, ChannelSceneMetadata, SubagentState, SubagentControl, BackgroundJobState, JobControl, StagedImageInput, StagedImageHandle, ComposerImageRef, ComposerSubmission, ExternalCommandOutcome, TranscriptImage, ResumeResult, EffortOption, PermissionPresetSnapshot, PresetOption, LlmModelInfo, LlmProviderInfo, SkillInfo, CredentialStatus, AgentViewRow, AgentViewDispatchResult, BackgroundResult, RawTrajEvent, TrajectoryLane, TrajectorySource, ChannelSelection, AttachedContext, CompactionStatus, ContextOccupancy, ChannelCapabilities, ChannelCostReport, ChannelRateLimit, ChannelSessionRef, BackendModeOption, BackendChannelOption, BackendChannelInput } from './channel-view.js'
+import type { ChatRow, AgentStatus, TokenUsage, TurnUsageSummary, SessionCostByModel, SubagentCostEntry, NotificationItem, ChannelGoal, TodoPanelItem, LoadedContext, PendingMessage, ChannelSceneMetadata, SubagentState, SubagentControl, BackgroundJobState, JobControl, StagedImageInput, StagedImageHandle, ComposerImageRef, ComposerSubmission, ExternalCommandOutcome, TranscriptImage, ResumeResult, EffortOption, PermissionPresetSnapshot, PresetOption, LlmModelInfo, LlmProviderInfo, SkillInfo, CredentialStatus, AgentViewRow, AgentViewDispatchResult, BackgroundResult, RawTrajEvent, TrajectoryLane, TrajectorySource, ChannelSelection, AttachedContext, CompactionStatus, ContextOccupancy, ContextBreakdown, ChannelCapabilities, ChannelCostReport, ChannelRateLimit, ChannelSessionRef, BackendModeOption, BackendChannelOption, BackendChannelInput } from './channel-view.js'
 import type { SpinnerMode, ToolBackground, ScrollGutterMode, PageMarginSetting, StatusBarConfig, SessionModeSpec, SplashFontSetting, JobGroupFoldMode, BrandSetting } from './channel-display.js'
 import type { LocalCommand, CommandCompletion, BalanceResult, FileCandidate, RecapOutcome } from './channel-catalog.js'
 import type { AgentCapabilities } from './channel-capabilities.js'
@@ -205,6 +205,17 @@ export interface ChannelUi {
    * `keyof ChannelUi`, and an optional member would widen that union.
    */
   readonly contextOccupancy: ContextOccupancy | undefined
+  /**
+   * What the occupancy total is made of, from the same meter unit's
+   * `contextBreakdown` projection (system prompt / request-envelope tool schemas
+   * / everything else). The segmented bar joins it with {@link contextSegments}
+   * to weight its five fills; `undefined` when the mounted meter does not publish
+   * a composition, in which case the bar uses those estimates alone.
+   *
+   * Never a total: only {@link contextOccupancy} numerator answers how full the
+   * window is (see the type's own doc).
+   */
+  readonly contextBreakdown: ContextBreakdown | undefined
   /** Output tokens per second of the current/last turn's response, when known. */
   readonly tps: number | undefined
   /** Per-turn tps samples (sparkline history), oldest first. */
@@ -390,7 +401,14 @@ export interface ChannelUi {
     question: string,
     options?: { signal?: AbortSignal; onText?: (delta: string) => void },
   ): Promise<{ answer: string | null; error?: string }>
-  /** Estimated context segments by content type (pi-nano-context style bar). */
+  /**
+   * This app's estimate of the context by content type — the weights behind the
+   * segmented bar's five fills (see {@link contextBreakdown} for the meter's own
+   * composition, which takes precedence where it exists). Never a total: the
+   * bar's length and readout come from {@link contextOccupancy}, and
+   * `barSegments` only uses these numbers to weight that authoritative span
+   * (its message side, or the whole composition when no meter value exists).
+   */
   readonly contextSegments: {
     system: number
     prompt: number
@@ -556,9 +574,8 @@ export interface ChannelUi {
   /** Provider-owned workspace subcommands. */
   workspaceCommands(): readonly Pick<TuiWorkspaceCommand, 'name' | 'aliases' | 'description'>[]
   runWorkspaceCommand(name: string, input: string): Promise<TuiWorkspaceCommandResult | undefined>
-  /** Switch the live model (`/model` picker): forks the conversation at its
-   *  current end and continues it with a new agent routed to `provider`/`model`.
-   *  The history replays unchanged; only the request route changes. */
+  /** Switch the live model (`/model` picker): selects the next request's route
+   *  on the same session; its ID, history, and agent are unchanged. */
   switchModel(provider: string, model: string): Promise<boolean>
   /** The live route's effort levels + adapter default for the `/effort`
    *  slider; empty `efforts` after notifying when unsupported/unavailable.
@@ -723,8 +740,10 @@ export interface ChannelUi {
    *  this channel's own request carries an abort signal it may fire. */
   cancelCompact(): void
   /** Render a multi-line local report in the transcript (`/status`,
-   *  `/doctor`, …): a `local` row plus one `local-output` row per line. */
-  pushLocal(title: string, lines: readonly string[]): void
+   *  `/doctor`, …): a `local` row plus one `local-output` row per line.
+   *  `lineLimit` overrides the default per-line cell budget for a report
+   *  whose line IS the payload (`/goal`'s objective) so it is not clipped. */
+  pushLocal(title: string, lines: readonly string[], options?: { readonly lineLimit?: number }): void
   /** MCP server/tool status for /mcp: one line per server, or setup guidance. */
   mcpStatus(): string[]
   /** Write the conversation transcript to `dsh-tui-export-<ts>.md` in the
