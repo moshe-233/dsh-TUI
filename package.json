@@ -65,6 +65,10 @@
       "types": "./lib/types/command-trees.d.ts",
       "import": "./lib/types/command-trees.js"
     },
+    "./preset-patch": {
+      "types": "./lib/types/preset-patch.d.ts",
+      "import": "./lib/types/preset-patch.js"
+    },
     "./settings-sections": {
       "types": "./lib/types/settings-sections.d.ts",
       "import": "./lib/types/settings-sections.js"
@@ -167,6 +171,7 @@
     "verify:plugin-commands": "node --import tsx/esm scripts/verify-plugin-commands.ts",
     "verify:plugin-negotiation": "node --import tsx/esm scripts/verify-plugin-negotiation.ts",
     "verify:plugin-feed": "node --import tsx/esm scripts/verify-plugin-feed.ts",
+    "verify:plugin-guard": "node --import tsx/esm scripts/verify-plugin-guard.ts",
     "verify:plugin-lifecycle": "node --import tsx/esm scripts/verify-plugin-lifecycle.ts",
     "verify:plugin-panels": "node --import tsx/esm scripts/verify-plugin-panels.tsx",
     "verify:runtime-themes": "node --import tsx/esm scripts/verify-runtime-themes.ts",
@@ -214,6 +219,7 @@
     "verify:math-inline-image": "node --import tsx/esm scripts/verify-math-inline-image.tsx",
     "verify:semantic-copy": "node --import tsx/esm scripts/verify-semantic-copy.tsx",
     "verify:btw": "node --import tsx/esm scripts/verify-btw.tsx",
+    "verify:preset-patch": "node --import tsx/esm scripts/verify-preset-patch.ts",
     "verify:adapter-skeleton": "node --import tsx/esm scripts/verify-adapter-skeleton.ts",
     "verify:adapter-ports": "node --import tsx/esm scripts/verify-adapter-ports.ts",
     "verify:adapter-effect-class": "node --import tsx/esm scripts/verify-adapter-effect-class.ts",

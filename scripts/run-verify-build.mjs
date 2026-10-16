@@ -60,6 +60,7 @@ const GATES = [
   'verify:plugin-commands',
   'verify:plugin-negotiation',
   'verify:plugin-feed',
+  'verify:plugin-guard',
   'verify:plugin-lifecycle',
   'verify:runtime-themes',
   'verify:theme-hotswap',
@@ -132,6 +133,7 @@ const GATES = [
   'verify:math-inline-image',
   'verify:semantic-copy',
   'verify:btw',
+  'verify:preset-patch',
   'verify:session-mounts',
   'verify:handoff-stdin',
 ]

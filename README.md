@@ -253,7 +253,9 @@ subscription credentials and `/channel` connections use private app-server proce
 
 Streaming/tool cards, approvals, questions, steer/queue/interrupt, model and
 effort controls, Plan, `/review`, `/diff`, `/usage`, `/init`, skills and MCP
-share the existing UI. **Shift+Tab only toggles Plan**, keeping its underlying
+share the existing UI. Async questions open the questionnaire while Codex
+continues working; answers steer the turn (or queue if unavailable), and
+dismissing the question leaves work running. **Shift+Tab only toggles Plan**, keeping its underlying
 permission preset; Full Access requires an explicit choice. Existing Codex
 settings are respected, not overwritten with defaults. `/login` offers
 ChatGPT OAuth, a device code or an API key (the last writes to Codex’s own
@@ -404,9 +406,23 @@ Seam grading and API notes: [Plugin development](docs/plugins.en.md). The organi
 
 Installing a plugin from inside the TUI: `/plugin install <package | path | git url>`. It goes through the host's profile plugin manager — a pre-install notice, a trust confirmation, cancellable progress, build-script approval and exact-version exemptions. Packages on the first-party feed this package ships (`tui-profile/feed/first-party.json`, pinned per release and decided offline) skip the trust confirmation, and only a spec that names that exact version qualifies: a bare name, a tag or a range is resolved again at install time, so it is confirmed with the person instead. What was confirmed is what gets installed — the run pins the exact `name@version` the inspection read — and a turn that is still running refuses the install (finish it, or `/new`, first). The same actions remain available from the CLI (`dsh plugin --profile dsh-tui …`).
 
+A spec names one of three things:
+
+```sh
+/plugin install /path/to/repo
+/plugin install https://github.com/exam/ple.git
+/plugin install @scope/package@1.2.3
+```
+
+Typing `/plugin install ` lists these three shapes in the completion popup, and the same shapes follow the installed names on `/plugin info `. They are examples, never candidates: `Tab` leaves the draft exactly as it is, and `Enter` runs the line you typed — the subcommand's usage line while the spec is still empty, your own spec once it is not. No example can therefore be inserted or installed by accident, and a real path that merely starts like one is never swallowed.
+
 During installation, `esc` attempts cancellation and keeps the pane open until the write settles; if cancellation is too late, it waits for the installation to finish. During exemption registration, it waits for the current write and stops subsequent grants and the retry. Exemptions already written remain.
 
 Failed installs show up to six redacted log lines; lines larger than 16 KiB are omitted with a notice.
+
+Managing what is installed: `/plugin remove <bundle>`, `/plugin enable <name | row id>` and `/plugin disable <name | row id>`. A bundle is a composition layer and a row is one patch entry, so the two are separate actions, and a bundle name is matched before any row identity. A module name shared by multiple rows requires a specific row ID. **Gate 2 refuses the three ways this app could switch itself off** — removing or disabling the bundle that provides it, the host layer `dsh-base`, or one of its own rows — and says which rule it broke, without calling the service at all; that holds whether or not hot reload is live, which is the path the host's own guard misses. `enable` is never refused by gate 2 (it is the repair action). Every enable and removal asks first; `disable` asks only about a host-layer row. The host does not attest installed package sources, so even an exact feed match requires confirmation before enabling.
+
+These three actions have no cancellation — the service offers none — so `esc` only closes the pane while the write finishes and reports itself into the transcript. Enable and disable have no CLI verb either (the service writes them into the profile's own files), and a removal never deletes your own data: anything left under `~/.dsh-tui` is reported once and left for you to delete.
 
 ## Documentation
 

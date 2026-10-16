@@ -212,7 +212,8 @@ thread；这不是把历史导入 DSH 的 `migrate codex`。
 托管订阅凭据与 `/channel` 连接继续使用独立的 app-server 进程。
 
 流式/工具卡、审批问卷、插话/排队/打断、模型与 effort、Plan、`/review`、`/diff`、
-`/usage`、`/init`、skills 与 MCP 复用现有界面。**Shift+Tab 只开关 Plan**，保留底层
+`/usage`、`/init`、skills 与 MCP 复用现有界面。异步提问会打开问卷，同时 Codex 继续
+执行；答案插入当前回合（不可插话时排队），取消问卷保留运行。**Shift+Tab 只开关 Plan**，保留底层
 权限档；Full Access 必须明确选择。已有 Codex 设置不会被默认值覆盖。`/login` 提供
 ChatGPT OAuth、设备码或 API key（后者写入 Codex 自己的凭据存储）。`/channel` 连接
 优先，托管订阅令牌只在第一方路由注入；不写 `~/.codex/config.toml`，不退出原生登录。
@@ -347,9 +348,23 @@ pnpm smoke
 
 在 TUI 里装插件：`/plugin install <包名 | 路径 | git URL>`。动作全走宿主 profile 插件管理器——装前提醒、信任确认、可取消的进度、构建脚本批准与精确版本豁免；命中**随包发布的嫡系清单**（`tui-profile/feed/first-party.json`，一个版本钉死一份、离线可判）的包跳过信任确认，且只有写明该精确版本的 spec 才算命中：裸包名、标签或范围会在安装时被重新解析，因此一律先让人确认。确认的是哪一件就装哪一件——安装会钉住 inspect 读到的精确 `name@version`；回合仍在运行时拒绝安装（先结束它，或用 `/new`）。同样的动作在命令行仍可用（`dsh plugin --profile dsh-tui …`）。
 
+一个 spec 是下面三种之一：
+
+```sh
+/plugin install /path/to/repo
+/plugin install https://github.com/exam/ple.git
+/plugin install @scope/package@1.2.3
+```
+
+输入 `/plugin install ` 时补全浮窗会列出这三种形状，`/plugin info ` 则在已装名之后跟上同样三条。它们是示例、不是候选：`Tab` 让草稿逐字保持原样，`Enter` 提交的始终是你自己打的那一行——spec 还空着时就是子命令的用法行，已经有 spec 时就是你写的那个。示例既插不进草稿、也不会被误装，一个只是开头像示例的真实路径也不会被吞掉。
+
 安装期间按 `esc` 会尝试取消，面板等写操作结束后才关闭；取消来不及时会等待安装完成。版本豁免登记期间取消会等待当前写入，停止后续登记和安装重试；已写入的豁免保留。
 
 安装失败时最多显示六行脱敏日志；超过 16 KiB 的单行会整行省略并提示。
+
+管理已经装上的东西：`/plugin remove <bundle>`、`/plugin enable <名称 | 行 id>`、`/plugin disable <名称 | 行 id>`。bundle 是组合层、行是 patch 的一条，两者分开做动作，且 bundle 名优先于任何行身份；模块名匹配多行时，必须改用具体行 ID。**门禁 2 拒绝三种「自己把自己关掉」**——卸载/关闭提供本应用的 bundle、宿主层 `dsh-base`、以及本包自己提供的行——并说清破了哪条规则，且完全不调用服务；热重载开着时同样拒（那正是上游守卫失效的那条路径）。`enable` 不会因门禁 2 被拒（它是复原动作）。任何启用与卸载都要确认，`disable` 只对宿主层自己的行问；宿主不提供已装包的来源证明，即使名称与版本命中嫡系清单，启用时仍须确认。
+
+这三个动作**没有取消面**——服务不提供——所以 `esc` 只关面板，写入照旧跑完并把结果写进转录。启用与关闭在命令行也没有动词（那两件事由服务写 profile 自己的文件），卸载也不会删你自己的数据：`~/.dsh-tui` 下还剩什么只报告一次，删不删由你决定。
 
 ## 文档索引
 
