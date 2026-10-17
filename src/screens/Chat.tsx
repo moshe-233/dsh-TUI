@@ -127,11 +127,14 @@ import { PluginManagePane } from '../components/PluginManagePane.js'
 import type { SdkInstaller, SdkInstallSurface } from '../agent/backend.js'
 import type { PluginInstallFlow, PluginInstallSink, PluginInstallStep } from '../dsh-adapter/plugin-install.js'
 import type { PluginManageFlow, PluginManageSink, PluginManageStep } from '../dsh-adapter/plugin-manage.js'
+import type { TeamCommandOutcome, TeamCommandSink } from '../dsh-adapter/team-mode.js'
+import { teamMemberCounts } from '../components/teamRoster.js'
 import { usePluginWriteFlow } from './chat/usePluginWriteFlow.js'
 import { ChannelPicker } from '../components/ChannelPicker.js'
 import type { KernelEntry, KernelStatus } from '../components/kernelCatalog.js'
 import type { KernelBackendId } from '../kernelPrefs.js'
 import { modeDisplayName } from '../sessionModes.js'
+import { PERMISSION_PRESET_AUTO, permissionPresetLabel } from '../permissionPresetLabels.js'
 import { PlanPicker } from '../components/PlanPicker.js'
 import { LangPicker } from '../components/LangPicker.js'
 import { ThemePicker, getThemeOptions } from '../components/ThemePicker.js'
@@ -267,11 +270,25 @@ function cleanCommandError(error: unknown): string {
   }
 }
 
+/** Picking the experimental `auto` preset from the picker asks first, unless
+ *  the session already sits on it. A typed `/permission auto` does not. */
+function needsAutoConfirm(snapshot: PermissionPresetSnapshot, value: string | undefined): boolean {
+  return value === PERMISSION_PRESET_AUTO && snapshot.autoConfirmed !== true
+}
+
+/** The current identity's display name, localized like the picker rows. */
+function currentPermissionName(snapshot: PermissionPresetSnapshot): string | undefined {
+  const current = snapshot.current
+  if (current === undefined) return undefined
+  return current.kind === 'preset' ? permissionPresetLabel(current) : current.name
+}
+
 function clonePermissionPresetSnapshot(snapshot: PermissionPresetSnapshot): PermissionPresetSnapshot {
   return {
     availability: snapshot.availability,
     options: snapshot.options.map(option => ({ ...option })),
     ...(snapshot.current === undefined ? {} : { current: { ...snapshot.current } }),
+    ...(snapshot.autoConfirmed === true ? { autoConfirmed: true } : {}),
   }
 }
 
@@ -397,6 +414,7 @@ export function Chat({
   onResolveSdkInstall,
   onPluginInstall,
   onPluginManage,
+  onTeamCommand,
   kernelPinned,
   fullscreen = false,
   trajectorySeen: trajectorySeenProp,
@@ -501,6 +519,12 @@ export function Chat({
    * whole contract.
    */
   onPluginManage?: (args: string, sink: PluginManageSink) => PluginManageFlow | undefined
+  /**
+   * `/team [status] | on | off`, wired to `createTeamCommandEntry`: on/off
+   * hand back a lifecycle flow on the Agent Teams bundle (same pane as
+   * `/plugin`), status a report. `undefined` on a backend without it.
+   */
+  onTeamCommand?: (args: string, sink: TeamCommandSink) => TeamCommandOutcome
   /** 启动参数（Config 行 / DSH_TUI_BACKEND）压过了记忆：选择器明说。 */
   kernelPinned?: boolean
   /**
@@ -711,6 +735,61 @@ export function Chat({
       permissionOverlayFocusRef.current = null
     }
   }, [overlay])
+  // The preset registry and the session's current preset can change while
+  // the picker is open (the experimental `auto` preset registers or leaves
+  // live; another surface switches the preset; a session adopt moves to a
+  // fresh log). Reopen on the live snapshot, keeping the focused preset; a
+  // confirmation whose preset left drops back to the list. The channel
+  // memoizes the snapshot, so an unchanged roster, current identity and
+  // `autoConfirmed` flag are the same object and the resync stops there.
+  const permissionResyncRef = React.useRef<{ overlay: unknown; live: PermissionPresetSnapshot } | null>(null)
+  React.useEffect(() => {
+    if (overlay.kind !== 'permission') {
+      permissionResyncRef.current = null
+      return
+    }
+    let live: PermissionPresetSnapshot
+    try {
+      live = channel.permissionPresets()
+    } catch {
+      return
+    }
+    const seen = permissionResyncRef.current
+    if (seen?.overlay === overlay && seen.live === live) return
+    permissionResyncRef.current = { overlay, live }
+    const values = (snapshot: PermissionPresetSnapshot) => snapshot.options.map(option => option.value).join('\n')
+    // A roster value change is the obvious case; the current identity and the
+    // session-scoped `autoConfirmed` flag can also move without changing the
+    // option values (another surface switches the preset, a session adopt
+    // lands, the auto preset leaves after a confirmation). Refresh on either,
+    // so `needsAutoConfirm` never reads a stale flag from another session.
+    if (
+      values(live) === values(overlay.snapshot)
+      && live.availability === overlay.snapshot.availability
+      && live.current?.value === overlay.snapshot.current?.value
+      && live.current?.kind === overlay.snapshot.current?.kind
+      && live.autoConfirmed === overlay.snapshot.autoConfirmed
+    ) return
+    if (live.availability === 'unavailable' || live.options.length === 0) {
+      dispatchOverlay({ type: 'close-if', kind: 'permission' })
+      return
+    }
+    const focusIndex = permissionOverlayFocusRef.current?.overlay === overlay
+      ? permissionOverlayFocusRef.current.index
+      : overlay.index
+    const focused = overlay.confirm === true ? PERMISSION_PRESET_AUTO : overlay.snapshot.options[focusIndex]?.value
+    const liveCurrent = live.current?.kind === 'preset' ? live.current.value : undefined
+    const index = [focused, liveCurrent]
+      .map(value => live.options.findIndex(option => option.value === value))
+      .find(found => found >= 0) ?? Math.min(1, live.options.length - 1)
+    const confirm = overlay.confirm === true && live.options.some(option => option.value === PERMISSION_PRESET_AUTO)
+    if (overlay.confirm === true && !confirm) channel.notify(t('permission-auto-unavailable'), { color: 'warning' })
+    dispatchOverlay({
+      type: 'open-if',
+      overlay: { kind: 'permission', index, snapshot: clonePermissionPresetSnapshot(live), ...(confirm ? { confirm } : {}) },
+      when: ['permission'],
+    })
+  })
   const [models, setModels] = React.useState<readonly LlmModelInfo[]>([])
   const [modelsLoading, setModelsLoading] = React.useState(false)
   const modelCatalogGeneration = React.useRef(0)
@@ -1042,6 +1121,11 @@ export function Chat({
     initialStep: { kind: 'done' },
     failureLine: error => t('plugins-manage-failed', { reason: cleanScalarText(error, COMMAND_RESULT_CELLS) }),
   })
+  /** 绑定会话的 teammate 数、其中运行中／准备中的数与可能在运行的数（关闭团队前的确认用）。 */
+  const teamMembers = (): { total: number; active: number; unseen: number } => {
+    const team = channel.team
+    return team === undefined ? { total: 0, active: 0, unseen: 0 } : teamMemberCounts(team, [...channel.subagents], channel.sessionId)
+  }
   /** 开始一次生命周期动作；`false` 表示这段输入不是那三种形式（或本启动没有服务）。 */
   const startPluginManage = (rawArgs: string): boolean => {
     const flow = onPluginManage?.(rawArgs, {
@@ -1049,6 +1133,7 @@ export function Chat({
       // 回合运行中改 profile 会触发应用／HMR：门禁在流程里（解析之前与写入之前各查一次）。
       busy: () => channel.working,
       onLines: lines => channel.pushLocal('/plugin', lines),
+      teamActiveMembers: teamMembers,
     })
     if (flow === undefined) return false
     pluginManage.start(flow, flow.begin())
@@ -1467,8 +1552,8 @@ export function Chat({
   }, [autoRecapSessionId])
   // The user starts a new message → the auto recap has served its purpose
   // (catching them up) and bows out. A newer user row is the signal; the
-  // assistant's own streamed rows don't count.
-  const lastUserRowId = channel.rows.filter(row => row.kind === 'user').at(-1)?.id ?? -1
+  // assistant's own streamed rows (and a teammate's message) don't count.
+  const lastUserRowId = channel.rows.filter(row => row.kind === 'user' && row.label !== 'team-message').at(-1)?.id ?? -1
   React.useEffect(() => {
     if (
       recap !== null &&
@@ -3643,6 +3728,34 @@ export function Chat({
         })
         return true
       }
+      case 'team': {
+        // `/team` 是团队 bundle 的启停（team-mode.ts）：on/off 走与 /plugin 同一个
+        // 生命周期流程与确认浮层，status 是一段报告；都按发起时的绑定落行。
+        setHelpOpen(false)
+        if (onTeamCommand === undefined) {
+          channel.pushLocal('/team', [t('team-cmd-unavailable')])
+          return true
+        }
+        const originAgentBinding = channel.agentBindingGeneration
+        const outcome = onTeamCommand(rawInput, {
+          binding: () => channel.agentBindingGeneration,
+          busy: () => channel.working,
+          onLines: lines => channel.pushLocal('/team', lines),
+          members: teamMembers,
+        })
+        if (outcome.kind === 'flow') {
+          pluginManage.start(outcome.flow, outcome.flow.begin())
+          return true
+        }
+        void outcome.lines.then((lines) => {
+          if (channel.agentBindingGeneration !== originAgentBinding) return
+          channel.pushLocal('/team', [...lines])
+        }, (error: unknown) => {
+          if (channel.agentBindingGeneration !== originAgentBinding) return
+          channel.pushLocal('/team', [t('plugins-manage-failed', { reason: cleanCommandError(error) })])
+        })
+        return true
+      }
       case 'export': {
         const target = channel.exportSession()
         channel.notify(
@@ -3800,7 +3913,7 @@ export function Chat({
           }
           const currentName = snapshot.availability === 'unavailable'
             ? t('permission-roster-unavailable')
-            : snapshot.current?.name ?? '—'
+            : currentPermissionName(snapshot) ?? '—'
           channel.pushLocal('/permission', [
             t('permission-current', { name: currentName }),
             t('permission-policy-hint'),
@@ -5042,6 +5155,16 @@ export function Chat({
       }
       return
     }
+    if (overlay.kind === 'permission' && overlay.confirm === true) {
+      if (plainReturn) {
+        permissionOverlayFocusRef.current = null
+        dispatchOverlay({ type: 'close' })
+        void runPermissionCommand(` ${PERMISSION_PRESET_AUTO}`)
+      } else if (key.escape) {
+        dispatchOverlay({ type: 'open', overlay: { ...overlay, confirm: false } })
+      }
+      return
+    }
     if (overlay.kind === 'permission') {
       if (key.upArrow || key.downArrow) {
         const currentIndex = permissionOverlayFocusRef.current?.overlay === overlay
@@ -5056,6 +5179,10 @@ export function Chat({
           : overlay.index
         const option = overlay.snapshot.options[currentIndex]
         permissionOverlayFocusRef.current = null
+        if (needsAutoConfirm(overlay.snapshot, option?.value)) {
+          dispatchOverlay({ type: 'open', overlay: { ...overlay, index: currentIndex, confirm: true } })
+          return
+        }
         dispatchOverlay({ type: 'close' })
         if (option !== undefined) void runPermissionCommand(` ${option.value}`)
       } else if (key.escape) {
@@ -5902,9 +6029,24 @@ export function Chat({
                 focusIndex={overlay.index}
                 currentValue={overlay.snapshot.current?.value}
                 cwd={channel.cwd}
+                confirming={overlay.confirm === true}
+                onConfirm={() => {
+                  if (approvalSnapshot !== null || questionSnapshot !== null || dialogSnapshot !== null) return
+                  permissionOverlayFocusRef.current = null
+                  dispatchOverlay({ type: 'close' })
+                  void runPermissionCommand(` ${PERMISSION_PRESET_AUTO}`)
+                }}
+                onCancelConfirm={() => {
+                  if (approvalSnapshot !== null || questionSnapshot !== null || dialogSnapshot !== null) return
+                  dispatchOverlay({ type: 'open', overlay: { ...overlay, confirm: false } })
+                }}
                 onPick={(index) => {
                   if (approvalSnapshot !== null || questionSnapshot !== null || dialogSnapshot !== null) return
                   const option = overlay.snapshot.options[index]
+                  if (needsAutoConfirm(overlay.snapshot, option?.value)) {
+                    dispatchOverlay({ type: 'open', overlay: { ...overlay, index, confirm: true } })
+                    return
+                  }
                   dispatchOverlay({ type: 'close' })
                   if (option !== undefined) void runPermissionCommand(` ${option.value}`)
                 }}
@@ -6360,6 +6502,9 @@ export function Chat({
       <BtwThreadScene
         channel={channel}
         onClose={() => setBtwSceneOpen(false)}
+        // 送聊天之后整屏场景让位：关场景 + 焦点回主输入框——与侧栏形态里
+        // 「面板留着、焦点回输入框」的落点一致（见 BtwThreadScene.sendToChat）。
+        onFocusChat={sidePanel.focusChat}
       />
     )
     return fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>
@@ -6373,6 +6518,8 @@ export function Chat({
     const dashboard = (
       <SubagentDashboard
         subagents={[...channel.subagents]}
+        team={channel.team}
+        sessionId={channel.sessionId}
         onSelect={(id) => {
           setSubagentDashboardOpen(false)
           setSubagentDetailId(id)
@@ -6434,7 +6581,7 @@ export function Chat({
     let launchpadPermission: string | undefined
     try {
       const snapshot = channel.permissionPresets()
-      launchpadPermission = snapshot.availability === 'runtime' ? snapshot.current?.name : undefined
+      launchpadPermission = snapshot.availability === 'runtime' ? currentPermissionName(snapshot) : undefined
     } catch {
       launchpadPermission = undefined
     }

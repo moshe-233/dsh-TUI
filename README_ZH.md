@@ -86,8 +86,12 @@
 
 前置条件：安装 [Node.js](https://nodejs.org/zh-cn) 与 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。`deepseek-official` API key 路由需要 `DEEPSEEK_API_KEY`；DSH 0.2.0-rc.1+ 的标准 profile 也可用 `/auth login deepseek-account` 登录，再通过 `/model` 选择独立的账号路由。其他支持的账号可在启动后通过 `/provider` 或 `/auth` 登录。
 
-主适配目标为 DSH `0.2.0-rc.2`，已接入新版 Shell API、V4 会话消息、声明式预设与
+主适配目标为 DSH `0.2.1-rc.2`，已接入新版 Shell API、V4 会话消息、声明式预设与
 profile 设置；旧受支持版本保留兼容路径。迁移说明见[配置参考](docs/configuration.md)。
+
+DSH rc.2 下还可在 `/settings` 选择 DeepSeek 搜索 / 抓取 API、修改端点与结果数。
+分区支持自定义 Loader 行 ID，可直接输入 API key，密钥以掩码显示并保存到 DSH 凭据库。
+官方 Flash 模型显示 `1017` 发布标记，模型 ID 仍为 `deepseek-flash`。
 
 DSH 0.1.7 的 `/settings` 使用 TUI 实际的 Loader 行 ID，也支持自定义 ID。
 profile 依赖须配套，包含 `@deepseek-ai/schemastery` 3.18.3 或更新版本；
@@ -225,12 +229,49 @@ ChatGPT OAuth、设备码或 API key（后者写入 Codex 自己的凭据存储�
 TPS 计入隐藏推理的生成时间，剔除工具执行时间；实时文本估算在 Codex 报告实际
 输出 token 用量后校正。
 
-原生浏览/归档、fork/对话回退、分页历史、图片、子代理、轮询后台终端、目标与
+原生浏览/归档、fork/对话回退（首条消息需 Codex app-server 0.160.1+）、分页历史、图片、子代理、轮询后台终端、目标与
 `/btw`/`/recap` 接入现有界面。`/logout` 仅清对应 dsh-auth 凭据；已载入的托管令牌
 需要正常重启，不注销原生登录。真实 0.160.1 app-server 九项无凭据离线检查与八项后台会话恢复检查通过，
 没有模型回合或费用；真实订阅登录、带凭据模型调用与真实 TTY 交互本轮未运行。
 自动变化仅 Codex 标识/标题，不改配色与宠物。第三方客户端使用 ChatGPT 订阅令牌受
 OpenAI 条款约束。完整操作与当前边界：[Codex 后端](docs/codex-backend.md)。
+
+### 实验性：DSH Agent Teams
+
+DSH 的实验性 Agent Teams 让会话的主 agent（Lead）创建有名字的 teammate：它们共用
+工作目录、互相发消息，并在一块共享任务板上协作。默认关闭。先把上游 bundle 装进 TUI
+profile（一次即可）：
+
+```sh
+dsh plugin --profile dsh-tui add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.1-rc.2
+```
+
+之后用 `/team on` / `/team off` 开关（单独 `/team` 报告 bundle、服务与本会话的
+teammate）。开关就是在 profile 里启停这个 bundle，重启后保持；`dsh --profile` 启动时
+立即生效，运行中的会话也跟着变，模型会收到工具增减的通知。有 teammate 在运行时关闭
+会先确认，关闭会停止它们：团队服务卸载时释放仍在运行的 teammate。在 teammate 会话里
+看不到其他 teammate 的运行状态，确认按「可能在运行」计数。团队记录留在会话里，
+下次 `/team on` 时恢复。对这个 bundle 用 `/plugin enable|disable` 效果相同。
+
+版本必须钉住，与你已装的 DSH 版本完全一致（上面以主适配线 `0.2.1-rc.2` 为例；
+DSH `0.2.1-alpha.5`、`0.2.0-rc.1` 或 `0.2.0-rc.2` 就装同版本的 `…-profile`）：团队包与 DSH 同步发版、对 DSH 的 peer
+是精确版本，不带版本和 `next` 都装不上。`/team on` 在包没装时给出的命令按已装 DSH 的
+版本填写（限上述版本线，读不到版本时给 `0.2.1-rc.2`）；其他 DSH 版本装不上团队 bundle，
+会提示先把 DSH 换到上述版本线之一。
+
+请求里有 `spawn_teammate` 时，dsh-TUI 从中去掉 `subagent` / `subagent_fork`，团队的
+`send_message` / `list_agents` / `interrupt_agent` / `wait_agent` 顶替同名的旧版控件：
+委派工具只剩 `spawn_teammate`；团队关闭后旧版工具回来。不是团队成员的子代理（workflow、
+ralph）保留 `subagent`。teammate 显示为子代理行，
+成员间的消息在接收方会话里显示为 `✉ <发送者>` 气泡（teammate 收到的消息在其子代理详情里显示为
+agent 消息），其余团队工具显示为单行卡片（`send_message` 带目标与 `sent`）。agents 仪表盘（Ctrl+A）与 agents 侧栏
+进入团队视图：teammate 以成员名显示，状态为运行中 / 空闲 / 准备中 / 失败（回合结束的
+teammate 是空闲而不是完成，发消息即可唤醒）；另有 Lead 行、其余子代理、只读任务板
+（状态、负责人、阻塞、写入范围警告），团队记录被拒时显示错误横幅。
+
+限制：开关作用于整个 profile，不能按会话开关（没有 profile 插件服务或没有热重载的
+启动要用 `dsh plugin` 并重启）；还不能「进入 teammate 会话」；`/export` 不导出团队消息。上游限制同样
+适用：teammate 共用一个工作目录、团队只在单进程内、任务负责人不会自动释放。
 
 ## 快捷键与鼠标
 
@@ -344,6 +385,11 @@ pnpm smoke
 
 插件开发：[准入与开发指南](tui-profile/docs/plugin-admission-and-development.md) · [plugin-template](https://github.com/dsh-tui-ecosystem/plugin-template) · [dsh-tui-ecosystem](https://github.com/dsh-tui-ecosystem)。参考实现：`dsh-working-activity`。
 
+通过包子路径导出的插件组件，按实际 ESM 入口最近的包清单准入（含 import-only 与条件导出），不继承外层包的身份。
+
+后端插件（`tui.dsh/v1alpha1` 的 `Backend` 贡献族）装了就会在重启后进内核选择器：启动时扫 profile 声明的已装 bundle，按包根的 `dsh-plugin.json` 校验、准入并注册，后端实现从包里导出 `backend`（模块只在真的选中时才加载）。
+每个 bundle 只能声明一个后端，handler 的 id 必须与声明一致。等待授权的条目不参与探测，也不能加载；显式指定它启动同样会被拒绝。
+
 接缝分级与 API 说明：[插件开发](docs/plugins.md)。生态组织只维护收录，不背书社区插件。
 
 在 TUI 里装插件：`/plugin install <包名 | 路径 | git URL>`。动作全走宿主 profile 插件管理器——装前提醒、信任确认、可取消的进度、构建脚本批准与精确版本豁免；命中**随包发布的嫡系清单**（`tui-profile/feed/first-party.json`，一个版本钉死一份、离线可判）的包跳过信任确认，且只有写明该精确版本的 spec 才算命中：裸包名、标签或范围会在安装时被重新解析，因此一律先让人确认。确认的是哪一件就装哪一件——安装会钉住 inspect 读到的精确 `name@version`；回合仍在运行时拒绝安装（先结束它，或用 `/new`）。同样的动作在命令行仍可用（`dsh plugin --profile dsh-tui …`）。
@@ -395,7 +441,9 @@ pnpm smoke
 
 不自带沙箱：用当前 DSH profile 的文件、Shell、sandbox 与 approval 策略。权限预设来自 DSH `permissionPresets` registry。
 
-**权限记忆**（三个内核都有）：Claude 与 Codex 后端把 `/permission` 选择存在 `~/.dsh-tui/backends/<id>/prefs.json`；DSH 的选择存在 `~/.dsh-tui/permission.json`。任何一次持久的预设切换（选择器、手敲 `/permission`、Shift+Tab 静态模式、官方命令自行完成的切换）都会更新记忆；从未自定义过权限面的会话将以上次的选择启动——同样走官方切换路径。这里的"未自定义"以用户动作为准：合成层会在每个新会话创建时写入自己的默认预设，那些事件不算用户选择。计划模式的临时切换不记入；`DSH_PERMISSION_MODE` 是本次启动的初始权限面，显式设置时优先于该文件；名册已不提供的身份会被跳过。
+**权限记忆**（三个内核都有）：Claude 与 Codex 后端把 `/permission` 选择存在 `~/.dsh-tui/backends/<id>/prefs.json`；DSH 的选择存在 `~/.dsh-tui/permission.json`。任何一次持久的预设切换（选择器、手敲 `/permission`、Shift+Tab 静态模式、官方命令自行完成的切换）都会更新记忆；从未自定义过权限面的会话将以上次的选择启动——同样走官方切换路径。这里的"未自定义"以用户动作为准：合成层会在每个新会话创建时写入自己的默认预设，那些事件不算用户选择。计划模式的临时切换与实验性的自动授权审查（见下）不记入；`DSH_PERMISSION_MODE` 是本次启动的初始权限面，显式设置时优先于该文件；名册已不提供的身份会被跳过。
+
+**自动授权审查**（DSH，实验性）：启用 `dsh-experimental-auto-review` 插件后，`auto` 预设（显示为「自动授权审查」，带 `EXP` 标记）即时出现在 `/permission` 及其补全里，移除插件后即时消失。它只对当前会话生效：模型在每次工具调用执行前审查，没有文件沙箱，每次调用额外一次模型请求；其审批显示本地化原因，子代理中的拒绝显示为「自动授权审查拒绝，未执行」。在选择器里选中它会先出风险确认（`Enter` 启用，`Esc` 返回；全屏下「启用 / 返回」两行可点击）；手敲 `/permission auto` 直接切换。当前会话选过它一次之后，选择器不再弹确认，Shift+Tab 也不再跳过它。
 
 **上游断链自动重试**（DSH）：会话每次绑定（启动、`/model` 切换、resume）时，只为**当前实际使用的渠道**播种一份重试策略——最多重试 5 次、失败码覆盖传输类中断（含 `STREAM_CLOSED`，即上游流被掐断）——写入官方 `llm-pi-ai` settings 分节（内核 `llm-retry` 插件执行的就是这份策略）。只补未声明 `retryPolicy` 的渠道、从不写闲置渠道；已显式声明的不会被覆盖；cordis.yml 里 `upstreamRetry: false` 可整体关闭。
 

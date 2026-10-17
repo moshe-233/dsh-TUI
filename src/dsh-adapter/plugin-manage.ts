@@ -36,11 +36,10 @@
 import { existsSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import type { BundleInfo, ChangeResult, PluginEntryId, PluginInfo } from '@deepseek-ai/dsh-plugin-manager/types'
-import { validateBackendSpec } from '../adapter/spec/tui-contributions.js'
 import { t, type I18nKey } from '../i18n.js'
 import { resolveDshProfileName } from '../update.js'
 import { backendDataDir, DATA_DIR } from '../utils/paths.js'
-import { COMPOSITION_PACKAGE, pluginDeclarationOf } from './plugin-declaration.js'
+import { COMPOSITION_PACKAGE, declaredBackendsOf, pluginDeclarationOf } from './plugin-declaration.js'
 import { failureReasonOf } from './plugin-install.js'
 import {
   HOST_BUNDLE,
@@ -51,6 +50,7 @@ import {
 } from './plugin-guard.js'
 import { pluginManagerOf, type PluginManagerView } from './plugin-manager.js'
 import { cell, parsePluginArgs, pluginFootprintContains } from './plugins-info.js'
+import { TEAM_BUNDLE } from './team-roster.js'
 
 /** The three lifecycle actions. */
 export type PluginManageAction = PluginGuardAction
@@ -84,6 +84,18 @@ export type PluginManageTarget =
   }
 
 /**
+ * Teammates the team-off question names: known to be running or
+ * provisioning (`active`), and those whose run a teammate session cannot see
+ * (`unseen`).
+ */
+export interface TeamActiveMembers {
+  readonly active: number
+  readonly unseen: number
+}
+
+const NO_TEAM_MEMBERS: TeamActiveMembers = { active: 0, unseen: 0 }
+
+/**
  * What the action asks a person, when it asks. Which question it is decides the
  * wording and the risk it names; all three end in the same write.
  */
@@ -97,6 +109,13 @@ export type PluginManageQuestion =
    * switching it off unloads services this application injects.
    */
   | { readonly kind: 'host-row' }
+  /**
+   * `disable` of the Agent Teams bundle while teammates run, are being
+   * created, or may be running unseen (`unseen`, from a teammate session):
+   * the team service stops them as it unloads, so the person decides with
+   * that in view.
+   */
+  | { readonly kind: 'team-active'; readonly members: number; readonly unseen: number }
 
 /**
  * What `/plugin remove|enable|disable` has to say next. `done` means the flow
@@ -114,6 +133,8 @@ export interface PluginManageSink {
   readonly busy: () => boolean
   /** Where the flow's transcript lines go (already sanitized and capped). */
   readonly onLines: (lines: readonly string[]) => void
+  /** See `teamActiveMembers` on the flow's options. */
+  readonly teamActiveMembers?: (() => TeamActiveMembers) | undefined
 }
 
 /**
@@ -149,6 +170,12 @@ export interface PluginManageFlowOptions {
    * consulted after it.
    */
   readonly residueOf?: ((name: string) => PluginResidueWatch | undefined) | undefined
+  /**
+   * Teammates of the bound session that are running or provisioning, and
+   * those that may be running. Read when `disable` resolves to the Agent
+   * Teams bundle; absent reads as none.
+   */
+  readonly teamActiveMembers?: (() => TeamActiveMembers) | undefined
 }
 
 export interface PluginManageFlow {
@@ -369,7 +396,8 @@ export function createPluginManageFlow(options: PluginManageFlowOptions): Plugin
    * - **`disable`** asks only about a row the host layer owns — the one whose
    *   removal takes this application's own services down with it. A bundle and a
    *   third-party row are reversible and run no new code, so the guard's
-   *   `allowed` is the whole answer.
+   *   `allowed` is the whole answer — except the Agent Teams bundle while
+   *   teammates are active, whose running turns lose their team tools.
    */
   async function ask(hostRowIds: ReadonlySet<string>): Promise<PluginManageStep> {
     const resolved = target
@@ -377,7 +405,9 @@ export function createPluginManageFlow(options: PluginManageFlowOptions): Plugin
     if (options.action === 'remove') return { kind: 'confirm', target: resolved, question: { kind: 'remove' } }
     if (options.action === 'disable') {
       const hostRow = resolved.kind === 'row' && resolved.patchId !== undefined && hostRowIds.has(resolved.patchId)
-      return hostRow ? { kind: 'confirm', target: resolved, question: { kind: 'host-row' } } : run()
+      if (hostRow) return { kind: 'confirm', target: resolved, question: { kind: 'host-row' } }
+      const { active, unseen } = resolved.kind === 'bundle' && resolved.name === TEAM_BUNDLE ? options.teamActiveMembers?.() ?? NO_TEAM_MEMBERS : NO_TEAM_MEMBERS
+      return active + unseen > 0 ? { kind: 'confirm', target: resolved, question: { kind: 'team-active', members: active, unseen } } : run()
     }
     return { kind: 'confirm', target: resolved, question: { kind: 'trust' } }
   }
@@ -525,6 +555,7 @@ export function createPluginManageEntry(
       binding: sink.binding,
       busy: sink.busy,
       onLines: sink.onLines,
+      teamActiveMembers: sink.teamActiveMembers,
       profileName: options.profileName ?? resolveDshProfileName(),
       // Only a removal has anything to leave behind, and only a removal has a
       // package to read the declaration from.
@@ -578,23 +609,10 @@ export function residueWatchOf(ctx: Context, name: string, dataRoot: string = DA
 /**
  * The backend ids a declaration contributes. Only a `Backend` entry names one,
  * and only through its validated `spec.id`. The outer `id` identifies the
- * contribution, not the backend whose data directory the host creates.
+ * contribution, not the backend whose data directory the host creates. Read
+ * through the shared `declaredBackendsOf()` reader, so this watch and the D-1
+ * assembly cannot disagree about which entries are backend contributions.
  */
 function backendIdsIn(record: Record<string, unknown> | undefined): string[] {
-  const contributes = record?.contributes
-  if (contributes === null || typeof contributes !== 'object') return []
-  const entries = (contributes as Record<string, unknown>)['x-dsh-tui']
-  if (!Array.isArray(entries)) return []
-  const ids = new Set<string>()
-  for (const entry of entries) {
-    if (entry === null || typeof entry !== 'object') continue
-    const candidate = entry as Record<string, unknown>
-    if (candidate.kind !== 'Backend') continue
-    try {
-      ids.add(validateBackendSpec(candidate.spec).id)
-    } catch {
-      // An invalid Backend spec does not identify a backend data directory.
-    }
-  }
-  return [...ids]
+  return [...new Set(declaredBackendsOf(record).backends.map(backend => backend.spec.id))]
 }

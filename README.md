@@ -98,9 +98,14 @@ The `deepseek-official` API-key route needs `DEEPSEEK_API_KEY`. On DSH
 and select the separate account route through `/model`. Other supported
 accounts can sign in through `/provider` or `/auth` after startup.
 
-The primary compatibility target is DSH `0.2.0-rc.2`. This adapter supports its
+The primary compatibility target is DSH `0.2.1-rc.2`. This adapter supports its
 Shell API, V4 session messages, declarative presets, and profile-backed settings;
 older supported hosts retain their compatibility paths. See [configuration](docs/configuration.en.md).
+
+On DSH rc.2, `/settings` also selects DeepSeek Search / Fetch APIs and edits their
+endpoint and result limits, supporting custom Loader entry IDs and a masked API
+key input saved through DSH's credential store. Official Flash model labels show the `1017` release
+marker while retaining the `deepseek-flash` model ID.
 
 On DSH 0.1.7, `/settings` uses the TUI's actual Loader entry ID, including custom
 IDs. It requires matching profile dependencies with `@deepseek-ai/schemastery`
@@ -272,7 +277,8 @@ start notice: Codex itself rejects every turn of that provider.
 TPS includes hidden reasoning time and excludes tool execution time. Live
 text estimates are corrected when Codex reports output token usage.
 
-Native browsing/archive, fork/conversation rewind, paged history, images,
+Native browsing/archive, fork/conversation rewind (the first message requires
+Codex app-server 0.160.1+), paged history, images,
 subagents, polled background terminals, goals and `/btw`/`/recap` use the
 existing surfaces. `/logout` removes only the matching dsh-auth credential;
 already-loaded managed tokens require a normal restart, not native logout.
@@ -283,6 +289,58 @@ changes automatically, not palette or companion.
 Using ChatGPT subscription tokens in third-party clients is subject to
 OpenAI’s terms. Full instructions and current boundaries:
 [Codex backend](docs/codex-backend.en.md).
+
+### Experimental: DSH Agent Teams
+
+DSH's experimental Agent Teams lets the session's agent (the Lead) create
+named teammates that share the working directory, message each other and
+coordinate on a shared task board. It is off by default. Install the
+upstream bundle into the TUI profile once:
+
+```sh
+dsh plugin --profile dsh-tui add @deepseek-ai/dsh-experimental-agent-team-profile@0.2.1-rc.2
+```
+
+Then switch it with `/team on` / `/team off` (`/team` alone reports the
+bundle, the service and this session's teammates). The switch enables or
+disables the bundle in the profile, so it persists across restarts, and on a
+`dsh --profile` launch it applies at once — running sessions included: the
+model is told which tools came and went. Turning it off while teammates run
+asks first, and switching off stops them: the team service releases the
+teammates still running as it unloads. Inside a teammate session the other
+teammates' runs are not visible, so the question counts them as possibly
+running. The team record stays in the session for the next `/team on`.
+`/plugin enable|disable` on the bundle does the same.
+
+Pin the version to exactly your installed DSH version (the command above
+uses the primary line `0.2.1-rc.2`; on DSH `0.2.1-alpha.5`, `0.2.0-rc.1` or
+`0.2.0-rc.2` install `…-profile@` that same version). The team packages ship in lockstep with DSH and pin
+their DSH peers exactly, so neither the untagged install nor `next` works.
+When the package is missing, `/team on` prints the command with your
+DSH version filled in on those lines (`0.2.1-rc.2` when the version cannot
+be read); on any other DSH version it asks you to switch DSH to one of those lines first, since
+no team bundle installs there.
+
+While a request carries `spawn_teammate`, dsh-TUI drops `subagent` /
+`subagent_fork` from it, and the team's `send_message` / `list_agents` /
+`interrupt_agent` / `wait_agent` take the place of the legacy controls of the
+same names, so `spawn_teammate` is the delegation tool; with the team off
+the legacy tools are back. Subagents that are not team members (workflow,
+ralph) keep `subagent`. A teammate shows up as a subagent row, a message between
+members as a `✉ <sender>` bubble in the receiving session (a teammate's
+received messages show on its subagent detail as agent messages), and the
+other team tools as one-line cards (`send_message` with its target and
+`sent`). The agents dashboard (Ctrl+A) and the agents side
+panel switch to a team view: each teammate under its member name with
+`running` / `idle` / `provisioning` / `failed` (a teammate whose turn ended
+is idle — a message wakes it — not done), the Lead line, the remaining
+subagents, a read-only task board (status, owner, `blocked`, write-scope
+warnings) and a banner when the team record was rejected.
+
+Limits: the switch covers the whole profile, not one session (a launch
+without the profile plugin service, or without hot reload, needs `dsh plugin`
+and a restart); there is no "enter teammate session" yet, and `/export` leaves team messages out. Upstream limits apply: teammates share one working directory, a
+team lives in one process, and a task owner is never released automatically.
 
 ## Keybindings & Mouse
 
@@ -402,6 +460,11 @@ questionnaire, or tool-card changes also need the matching regression scripts.
 
 Plugin development: [admission & development guide](tui-profile/docs/plugin-admission-and-development.md) · [plugin-template](https://github.com/dsh-tui-ecosystem/plugin-template) · [dsh-tui-ecosystem](https://github.com/dsh-tui-ecosystem). Reference implementation: `dsh-working-activity`.
 
+Exported plugin subcomponents are admitted using the nearest package manifest of their ESM entry, including import-only and conditional exports; they do not inherit an outer package's identity.
+
+A backend plugin (the `tui.dsh/v1alpha1` `Backend` contribution family) is in the kernel picker after a restart: the boot scans the bundles the profile declares, admits and registers each package-root `dsh-plugin.json` declaration, and reads the implementation from the package's `backend` export — importing that module only when the backend is actually selected.
+Each bundle may declare one backend, and its handler id must match the declaration. Entries awaiting authorization are neither probed nor loaded, including when explicitly requested at startup.
+
 Seam grading and API notes: [Plugin development](docs/plugins.en.md). The organization maintains the listing only; it does not endorse community plugins.
 
 Installing a plugin from inside the TUI: `/plugin install <package | path | git url>`. It goes through the host's profile plugin manager — a pre-install notice, a trust confirmation, cancellable progress, build-script approval and exact-version exemptions. Packages on the first-party feed this package ships (`tui-profile/feed/first-party.json`, pinned per release and decided offline) skip the trust confirmation, and only a spec that names that exact version qualifies: a bare name, a tag or a range is resolved again at install time, so it is confirmed with the person instead. What was confirmed is what gets installed — the run pins the exact `name@version` the inspection read — and a turn that is still running refuses the install (finish it, or `/new`, first). The same actions remain available from the CLI (`dsh plugin --profile dsh-tui …`).
@@ -459,7 +522,9 @@ Everything, bilingual: [docs/README.md](docs/README.md).
 
 No sandbox of its own: dsh-TUI uses the active DSH profile's filesystem, shell, sandbox and approval policies. Permission presets come from the DSH `permissionPresets` registry.
 
-**Permission persistence** (all three backends): the Claude and Codex backends keep their `/permission` picks in `~/.dsh-tui/backends/<id>/prefs.json`; the DSH pick is kept at `~/.dsh-tui/permission.json`. Every durable preset switch teaches it (picker, typed `/permission`, Shift+Tab static modes, or a switch the official command performed on its own), and a session that never customized its permission planes starts on the remembered preset — applied through the same official switch path. "Never customized" is about the user: the composition writes its own default preset into every fresh session at creation, and those events do not count. Plan-mode transients are excluded, a `DSH_PERMISSION_MODE` launch pin (this run's initial permission plane) outranks the file, and an identity the mounted roster no longer offers is skipped.
+**Permission persistence** (all three backends): the Claude and Codex backends keep their `/permission` picks in `~/.dsh-tui/backends/<id>/prefs.json`; the DSH pick is kept at `~/.dsh-tui/permission.json`. Every durable preset switch teaches it (picker, typed `/permission`, Shift+Tab static modes, or a switch the official command performed on its own), and a session that never customized its permission planes starts on the remembered preset — applied through the same official switch path. "Never customized" is about the user: the composition writes its own default preset into every fresh session at creation, and those events do not count. Plan-mode transients and the experimental Auto review preset (see below) are excluded, a `DSH_PERMISSION_MODE` launch pin (this run's initial permission plane) outranks the file, and an identity the mounted roster no longer offers is skipped.
+
+**Auto review** (DSH, experimental): when the `dsh-experimental-auto-review` plugin is enabled, the `auto` preset (shown as "Auto review", tagged `EXP`) appears in `/permission` and its completions live, and disappears when the plugin is removed. It is session-only: the model reviews every tool call before it runs, there is no file sandbox, and each call costs one extra model request; its approval prompts show the localized reason, and a subagent denial reads "Auto review denied; not executed". Picking it in the picker first shows a risk confirmation (`Enter` enables, `Esc` goes back; in fullscreen its Enable / Go back rows are clickable); a typed `/permission auto` switches directly. Once the current session has selected it, the picker skips the confirmation and Shift+Tab stops skipping it.
 
 **Upstream auto-retry** (DSH): whenever a session binds (boot, `/model` switch, resume), the TUI seeds a retry policy — 5 attempts, transport-drop-aware failure codes including `STREAM_CLOSED` (a dropped upstream stream) — on **the provider route that session actually uses**, through the official `llm-pi-ai` settings section (the policy the kernel's `llm-retry` plugin executes). Only routes without an explicit `retryPolicy` are seeded — dormant channels are never written — and `upstreamRetry: false` in cordis.yml opts out.
 
