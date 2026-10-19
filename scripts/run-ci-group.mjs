@@ -145,6 +145,14 @@ const GROUPS = {
 // 整个 0.6.x 才被发现——挂进来防再烂。
     ["repro-pill", ['node', '--import', 'tsx/esm', 'scripts/repro-pill.tsx']],
     ["repro-ctrlc", ['node', '--import', 'tsx/esm', 'scripts/repro-ctrlc.tsx']],
+// 卡死回合的逃生面回归（真实 Chat + 假 channel）：工具不响应中断时
+// cancelPending 永不收敛——第一次 Esc 之后重复 Esc 过去被 in-flight 闸门
+// 静默吞掉、/restart 被 working 门禁拒绝、Enter 插话还承诺「下一步立即
+// 处理」，用户无路可走。断言 Esc 每次都有可见应答、`/restart` 在回合中直达
+// onRestart、卡住时的插话提示不再承诺立即处理、同一收敛窗口内两次
+// Ctrl+Enter 不重复投递、channel 同步抛错时草稿不丢且失败可见；
+// 另含「空闲空输入 ⏎ 发送停靠队列」基线防回归。
+    ["repro-stuck-turn", ['node', 'scripts/repro-stuck-turn.mjs']],
 // /settings 设置屏回归（issue #165）：开屏、staged 编辑、revision 栅栏
 // 保存、密钥走 credentials、Esc 返回会话。
     ["repro-settings", ['node', '--import', 'tsx/esm', 'scripts/repro-settings.tsx']],
@@ -156,6 +164,10 @@ const GROUPS = {
 // 焦点序跳过标题直达字段），page 组与无 mode 的旧默认仍走子页；空的
 // inline 组不渲染孤儿标题。
     ["verify-settings-root-inline", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-root-inline.tsx']],
+// /settings 分页（页签）回归：不声明 page 的区块并入「常规」页，声明同一
+// page 的区块共页（页签按注册顺序、常规在最前）；Tab/Shift+Tab 与点击切换、
+// 每页焦点记忆、从 group 子页切页回根页；只有一页时不显示页签、布局不变。
+    ["verify-settings-pages", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-pages.tsx']],
     ["repro-inline-scrollback", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-scrollback.tsx']],
     ["repro-inline-thirdparty", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-thirdparty.tsx']],
 // 安全回归：OSC 出口控制字符剥离 + 超链接 scheme 门禁（安全审查
@@ -883,10 +895,13 @@ const GROUPS = {
 // teammate 是空闲而非完成、failed phase 优先）、只读任务板与失败横幅；整屏与侧栏、
 // 窄宽度与宽字符成员名下不越界，只在名单里的成员不进详情。
     ["verify-team-dashboard", ['node', '--import', 'tsx/esm', 'scripts/verify-team-dashboard.tsx']],
-// 团队模式开关（#1241）：assembly 里有 spawn_teammate 才去掉 subagent / subagent_fork、
-// plugin-manager/changed 后团队 store 随服务清空与恢复、/team status|on|off 与关闭时
-// 有成员运行的确认（/plugin disable 团队 bundle 同问）。
+// 团队状态（#1241）：assembly 里有 spawn_teammate 才去掉 subagent / subagent_fork、
+// plugin-manager/changed 后团队 store 随服务清空与恢复、/team status 与隐藏时提示、
+// 关闭时有成员运行的确认（/plugin disable 团队 bundle 同问）。
     ["verify-team-mode", ['node', '--import', 'tsx/esm', 'scripts/verify-team-mode.ts']],
+// `/team` 可见性（#1241）：帮助与 `/` 补全里的这一行跟 agentTeams 服务挂载/卸载，
+// 其他服务的 internal/service 事件不得误发布它。
+    ["verify-team-command-visibility", ['node', '--import', 'tsx/esm', 'scripts/verify-team-command-visibility.ts']],
 // 分段估算口径回归（#1170）：estimateTokens 由 chars/4 改为 CJK 感知的纯函数——
 // 单条纯 ASCII 与旧口径相同（显式快路径；跨消息累加因改为逐条 ceil 会有 ≤1
 // token/条的舍入差），中文/全角按 ~1.4 字符/token、其它脚本按 ~2；单调不减、

@@ -127,7 +127,7 @@ import { PluginManagePane } from '../components/PluginManagePane.js'
 import type { SdkInstaller, SdkInstallSurface } from '../agent/backend.js'
 import type { PluginInstallFlow, PluginInstallSink, PluginInstallStep } from '../dsh-adapter/plugin-install.js'
 import type { PluginManageFlow, PluginManageSink, PluginManageStep } from '../dsh-adapter/plugin-manage.js'
-import type { TeamCommandOutcome, TeamCommandSink } from '../dsh-adapter/team-mode.js'
+import type { TeamCommandSink } from '../dsh-adapter/team-mode.js'
 import { teamMemberCounts } from '../components/teamRoster.js'
 import { usePluginWriteFlow } from './chat/usePluginWriteFlow.js'
 import { ChannelPicker } from '../components/ChannelPicker.js'
@@ -235,6 +235,16 @@ const LOCAL_BLOCK_CELLS = 4000
  *  file, but a healthy import of thousands of conversations finishes well
  *  inside this; without a cap a wedged child would hang the loop forever. */
 const MIGRATE_CHILD_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * How long an interrupt may stay unconverged before the TUI says so. A normal
+ * abort ends the turn in well under a second; a tool that ignores its
+ * `AbortSignal` keeps the agent loop waiting forever (dsh-agent-loop awaits
+ * every dispatched tool on abort), so `working`/`cancelPending` never clear.
+ * The notice names `/restart` as the recovery hatch; this only ends the silent
+ * dead end in which every key seemed to do nothing.
+ */
+const INTERRUPT_STUCK_MS = 10_000
 /**
  * 落地页参数行四段能点开的既有选择器（第五版）：模型 → /model、思考深度 →
  * /effort、模式 → /plan、权限预设 → /permission。盖在落地页之上时键盘归
@@ -520,11 +530,11 @@ export function Chat({
    */
   onPluginManage?: (args: string, sink: PluginManageSink) => PluginManageFlow | undefined
   /**
-   * `/team [status] | on | off`, wired to `createTeamCommandEntry`: on/off
-   * hand back a lifecycle flow on the Agent Teams bundle (same pane as
-   * `/plugin`), status a report. `undefined` on a backend without it.
+   * `/team [status]`, wired to `createTeamCommandEntry`: a report, or the
+   * enable/migration hint when the team service is not mounted. `undefined`
+   * on a backend without it.
    */
-  onTeamCommand?: (args: string, sink: TeamCommandSink) => TeamCommandOutcome
+  onTeamCommand?: (args: string, sink: TeamCommandSink) => Promise<readonly string[]>
   /** 启动参数（Config 行 / DSH_TUI_BACKEND）压过了记忆：选择器明说。 */
   kernelPinned?: boolean
   /**
@@ -1070,6 +1080,10 @@ export function Chat({
       runSdkInstall(dir)
     })
   }
+  /** `/plugin` reports keep section indentation and blank rows. */
+  const pushPluginLocal = (lines: readonly string[]): void => {
+    channel.pushLocal('/plugin', lines, { preserveWhitespace: true })
+  }
   /**
    * `/plugin install <spec>` 的步骤态（C-4）。六件套（ref / state / 收尾 / 结算 /
    * 栅栏 / 起步）与 manage 侧共用 `usePluginWriteFlow`，两处的差异只有「关浮层
@@ -1079,7 +1093,7 @@ export function Chat({
     overlayKind: 'plugin-install',
     overlay,
     dispatchOverlay,
-    pushLocal: lines => channel.pushLocal('/plugin', lines),
+    pushLocal: pushPluginLocal,
     initialStep: { kind: 'done' },
     // 装了半截就关浮层会把 profile 留在半装状态：取消由服务自己结算（回滚）。
     cancelOnClose: flow => flow.cancel(),
@@ -1091,7 +1105,7 @@ export function Chat({
       binding: () => channel.agentBindingGeneration,
       // 回合运行中改 profile 会触发应用／HMR：门禁在流程里（inspect 之前与写入之前各查一次）。
       busy: () => channel.working,
-      onLines: lines => channel.pushLocal('/plugin', lines),
+      onLines: pushPluginLocal,
     })
     if (flow === undefined) return false
     pluginInstall.start(flow, flow.begin())
@@ -1117,7 +1131,7 @@ export function Chat({
     overlayKind: 'plugin-manage',
     overlay,
     dispatchOverlay,
-    pushLocal: lines => channel.pushLocal('/plugin', lines),
+    pushLocal: pushPluginLocal,
     initialStep: { kind: 'done' },
     failureLine: error => t('plugins-manage-failed', { reason: cleanScalarText(error, COMMAND_RESULT_CELLS) }),
   })
@@ -1132,7 +1146,7 @@ export function Chat({
       binding: () => channel.agentBindingGeneration,
       // 回合运行中改 profile 会触发应用／HMR：门禁在流程里（解析之前与写入之前各查一次）。
       busy: () => channel.working,
-      onLines: lines => channel.pushLocal('/plugin', lines),
+      onLines: pushPluginLocal,
       teamActiveMembers: teamMembers,
     })
     if (flow === undefined) return false
@@ -3724,30 +3738,20 @@ export function Chat({
         const originAgentBinding = channel.agentBindingGeneration
         void channel.pluginsInfo(rawInput).then((lines) => {
           if (channel.agentBindingGeneration !== originAgentBinding) return
-          channel.pushLocal('/plugin', lines)
+          pushPluginLocal(lines)
         })
         return true
       }
       case 'team': {
-        // `/team` 是团队 bundle 的启停（team-mode.ts）：on/off 走与 /plugin 同一个
-        // 生命周期流程与确认浮层，status 是一段报告；都按发起时的绑定落行。
+        // `/team` 只报告团队状态（team-mode.ts）；开关是 /plugin enable|disable。
+        // 服务未挂载时这一行不在命令表里，但手敲仍会走到这里，拿回开启提示。
         setHelpOpen(false)
         if (onTeamCommand === undefined) {
           channel.pushLocal('/team', [t('team-cmd-unavailable')])
           return true
         }
         const originAgentBinding = channel.agentBindingGeneration
-        const outcome = onTeamCommand(rawInput, {
-          binding: () => channel.agentBindingGeneration,
-          busy: () => channel.working,
-          onLines: lines => channel.pushLocal('/team', lines),
-          members: teamMembers,
-        })
-        if (outcome.kind === 'flow') {
-          pluginManage.start(outcome.flow, outcome.flow.begin())
-          return true
-        }
-        void outcome.lines.then((lines) => {
+        void onTeamCommand(rawInput, { members: teamMembers }).then((lines) => {
           if (channel.agentBindingGeneration !== originAgentBinding) return
           channel.pushLocal('/team', [...lines])
         }, (error: unknown) => {
@@ -4171,13 +4175,21 @@ export function Chat({
         // (cordis.yml root config, frozen fullscreen layout, newly built
         // code), so /restart respawns the process with the original argv and
         // resumes this session — the /update handoff minus the pnpm step.
+        // Allowed mid-turn on purpose: a turn whose abort never converges
+        // (a tool ignoring its AbortSignal) can leave `working` true forever,
+        // and refusing the one command that can rebuild the process would
+        // leave the user with no way out. The handoff notice written by the
+        // exit funnel owns the visible copy (and says what the restart
+        // interrupts); this toast only covers embedders whose onRestart does
+        // not tear the screen down.
         setHelpOpen(false)
         if (onRestart === undefined) {
           channel.notify(t('restart-unavailable'), { color: 'warning' })
-        } else if (channel.working) {
-          channel.notify(t(WORKING_GATE_NOTICES.restart), { color: 'warning' })
         } else {
-          channel.notify(t('restart-starting'))
+          channel.notify(
+            t(channel.working ? 'restart-during-turn' : 'restart-starting'),
+            channel.working ? { color: 'warning', timeoutMs: 6_000 } : undefined,
+          )
           onRestart()
         }
         return true
@@ -4625,6 +4637,39 @@ export function Chat({
   const closeCoupon = React.useCallback(() => {
     if (coupon !== null) bonusNotices?.dismiss(coupon.orderId)
   }, [bonusNotices, coupon])
+
+  /**
+   * Escalation surface for a wedged abort. `cancelPending` means a turn was
+   * asked to stop and has not produced its terminal event yet; a tool that
+   * never settles can hold that state forever. The channel-side `cancel()`
+   * ignores repeats while the abort converges, so a repeated Esc used to be a
+   * silent no-op — the user's "I pressed Esc and nothing happened". The
+   * watchdog raises the warning once per interrupt episode and Esc answers
+   * every press; `/restart` (no longer gated on `working`) is the way out.
+   */
+  const interruptWatchdogRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const interruptWarnedRef = React.useRef(false)
+  const clearInterruptWatchdog = React.useCallback((): void => {
+    if (interruptWatchdogRef.current !== null) clearTimeout(interruptWatchdogRef.current)
+    interruptWatchdogRef.current = null
+  }, [])
+  React.useEffect(() => {
+    if (!channel.working || !channel.cancelPending) {
+      // The turn settled (or the session was replaced): the next interrupt
+      // episode starts with a fresh warning.
+      clearInterruptWatchdog()
+      interruptWarnedRef.current = false
+      return
+    }
+    if (interruptWatchdogRef.current !== null) return
+    interruptWatchdogRef.current = setTimeout(() => {
+      interruptWatchdogRef.current = null
+      if (!channel.working || !channel.cancelPending || interruptWarnedRef.current) return
+      interruptWarnedRef.current = true
+      channel.notify(t('interrupt-stuck'), { color: 'warning', timeoutMs: 10_000 })
+    }, INTERRUPT_STUCK_MS)
+  }, [channel.working, channel.cancelPending])
+  React.useEffect(() => () => clearInterruptWatchdog(), [clearInterruptWatchdog])
 
   useInput((input, key, event) => {
     // 开屏"求 star"弹窗开着时键盘全归它（↑/↓/Enter/Esc 由它自己的
@@ -5553,8 +5598,20 @@ export function Chat({
       // vim mode (either submode) yields: there Esc is a MODE key (INSERT→
       // NORMAL, NORMAL = no-op/cancel pending d) and the prompt owns it;
       // interrupting still works via Ctrl+C / Ctrl+Enter.
-      if (channel.pending.length > 0) {
-        if (channel.interruptAndDock() === 0) channel.cancel()
+      const undocked = channel.pending.some(item => item.docked !== true)
+      if (undocked) {
+        // Docking is Esc's documented meaning for queued rows, and it starts
+        // its own interrupt; keep it even while a plain abort is in flight.
+        if (channel.interruptAndDock() === 0 && !channel.cancelPending) channel.cancel()
+      } else if (channel.cancelPending) {
+        // The abort is already in flight: `cancel()`/`interruptAndDock()`
+        // ignore repeats by contract, so answer the press instead of
+        // swallowing it. Past the watchdog window the turn is wedged, and
+        // the warning names `/restart` (allowed mid-turn) as the way out.
+        channel.notify(t(interruptWarnedRef.current ? 'interrupt-stuck' : 'interrupt-pending'), {
+          color: 'warning',
+          timeoutMs: interruptWarnedRef.current ? 10_000 : 4_000,
+        })
       } else {
         channel.cancel()
       }
